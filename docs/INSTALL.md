@@ -1,6 +1,6 @@
 # Install Grok Wear on your watch
 
-This fork’s VPN-on-watch steps (WearLoad, assistant button, subscription) are in Russian: **[INSTALL.md](../INSTALL.md)**.
+This 0.8.1 variant uses Watch VPN (no embedded mihomo). Russian install: **[INSTALL-GROK.md](../INSTALL-GROK.md)**.
 
 ## TL;DR
 

@@ -51,7 +51,7 @@ public final class MainActivity extends Activity {
     private void retryOffline(){if(visible&&accountOffline&&screen.equals("account_error"))recover();}
     private Runnable rosterRetry;
     private String settingsReturnScreen="bots",proxyReturnScreen="welcome";
-    private static final int SUBSCRIPTION_INPUT=33;
+    private static final int PROXY_HOST_INPUT=33,PROXY_PORT_INPUT=34;
     private static final java.util.concurrent.atomic.AtomicBoolean SIGN_OUT_ACTIVE=new java.util.concurrent.atomic.AtomicBoolean();
     private static volatile boolean signOutFailed;
     private final Runnable signOutObserver=new Runnable(){public void run(){if(!visible)return;if(SIGN_OUT_ACTIVE.get()){main.postDelayed(this,100);return;}finishSignOut();}};
@@ -269,7 +269,6 @@ public final class MainActivity extends Activity {
         if(screen.equals("button_setup")){finishButtonSetup(false);return;}
         if(screen.equals("report")){screen=reportReturnScreen;render();return;}
         if(screen.equals("bot_details")){screen="bots";render();return;}
-        if(screen.equals("proxy_servers")){screen="proxy";render();return;}
         if(screen.equals("proxy")){screen=proxyReturnScreen.equals("ready")?"ready":proxyReturnScreen.equals("welcome")?"welcome":proxyReturnScreen.equals("bots")?"bots":proxyReturnScreen.equals("account_error")?"account_error":"settings";render();return;}
         if(screen.equals("settings")){leaveSettings();return;}
         if(screen.equals("update")){screen=updateReturnScreen;render();return;}
@@ -287,7 +286,7 @@ public final class MainActivity extends Activity {
     }
     public void setPreviewScreen(String value){if(!preview||!BuildConfig.DEBUG)return;
         previewEpoch++;simulated=false;previewSaving=false;caption="";speaker="";safeError="";
-        screen=value==null?"welcome":value;if(screen.equals("settings")||screen.equals("signout_confirm"))settingsReturnScreen="bots";if(screen.equals("proxy")||screen.equals("proxy_servers"))proxyReturnScreen="settings";previewElapsedMs=screen.equals("last_minute")?240000:42000;if(screen.equals("last_minute"))screen="listening";if(screen.equals("done_saving")){previewSaving=true;screen="done";}if(screen.equals("completed"))screen="done";if(screen.equals("chats"))screen="recent";previewMuted=screen.equals("muted");
+        screen=value==null?"welcome":value;if(screen.equals("settings")||screen.equals("signout_confirm"))settingsReturnScreen="bots";if(screen.equals("proxy")||screen.equals("proxy_servers")){screen="proxy";proxyReturnScreen="settings";}previewElapsedMs=screen.equals("last_minute")?240000:42000;if(screen.equals("last_minute"))screen="listening";if(screen.equals("done_saving")){previewSaving=true;screen="done";}if(screen.equals("completed"))screen="done";if(screen.equals("chats"))screen="recent";previewMuted=screen.equals("muted");
         if(screen.equals("speaking")){speaker=botName;caption="Your next meeting is at ten. You have time for a short walk.";}
         if(screen.equals("thinking")){speaker="You";caption="What is next on my calendar?";}
         if(screen.equals("home_primary")){try{bots=new JSONArray().put(new JSONObject().put("id","preview-primary").put("name","Main Bot").put("lastMessagePreview","Ready when you are"));botPreferences=new JSONObject().put("mainAgentId","preview-primary");}catch(Exception ignored){}screen="bots";}else if(screen.equals("bots")){botPreferences=new JSONObject();}
@@ -354,7 +353,6 @@ public final class MainActivity extends Activity {
             case "access_link":accessLink();break;
             case "settings":settings();break;
             case "proxy":proxy();break;
-            case "proxy_servers":proxyServers();break;
             case "update":update();break;
             case "alerts_setup":alertsSetup();break;
             case "button_setup":buttonSetup();break;
@@ -381,9 +379,11 @@ public final class MainActivity extends Activity {
         TextView welcomeTitle=label("Grok Wear",large?14:16,WHITE);welcomeTitle.setTypeface(Typeface.create(Typeface.DEFAULT,600,false),Typeface.NORMAL);gap(4);
         label("Talk to your Bots.",12,SECONDARY);gap(4);
         Button connect=action("Sign in",()->beginLogin());((LinearLayout.LayoutParams)connect.getLayoutParams()).topMargin=0;connect.setTextColor(Color.BLACK);connect.setBackground(shape(WHITE,24));
-        action("VPN settings",()->openProxyFrom("welcome"));
-        ProxyRuntime.Snapshot vpn=preview?null:ProxyRuntime.snapshot();
-        label(preview?"Simulated · no microphone":vpn!=null&&vpn.connected?"VPN on · then sign in":"Turn the VPN on before sign-in",12,SECONDARY);gap(12);label("Unofficial Grok client",12,SECONDARY);
+        action("Прокси",()->openProxyFrom("welcome"));
+        ProxyRuntime.Snapshot vpn=preview?new ProxyRuntime.Snapshot("on","","127.0.0.1:7890","",true,false,true):ProxyRuntime.snapshot();
+        label(preview?"Simulated · no microphone":vpn.line(),12,vpn.connected?GREEN:ORANGE);gap(4);
+        if(!preview&&!vpn.connected)action("Открыть Watch VPN",this::openWatchVpn);
+        gap(8);label("Unofficial Grok client",12,SECONDARY);
     }
     private void qr(){TextView context=label(preview?"Demo QR":"Connect Grok",13,WHITE);context.setTypeface(Typeface.create(Typeface.DEFAULT,600,false),Typeface.NORMAL);gap(3);
         ImageView qr=new ImageView(this);qr.setContentDescription(preview?"Demo QR code":"Grok sign-in QR code");
@@ -456,7 +456,7 @@ public final class MainActivity extends Activity {
             if(botsCached&&botsLoading){Button busy=action("Refreshing…",()->{});busy.setEnabled(false);}else action(botsCached?"Refresh":"Try again",()->loadBots());
             if(botsCached&&!botsLoading&&botsFetchedAtMs>0&&botListError.isEmpty())label("Updated "+ago(botsFetchedAtMs),11,SECONDARY);}
         if(!preview&&!botListError.isEmpty()){action("Report a problem",()->openReport("Bot list: "+botListError,"bots"));action("Details",()->{screen="bot_details";render();});}
-        if(!preview&&!AppProxy.ready()){label(AppProxy.OFF,12,ORANGE);action("VPN settings",()->openProxyFrom("bots"));}
+        if(!preview&&!AppProxy.ready()){label(AppProxy.OFF,12,ORANGE);action("Открыть Watch VPN",this::openWatchVpn);action("Прокси",()->openProxyFrom("bots"));}
         action("Settings",()->openSettings());
     }
     private void openUpdate(String from){updateReturnScreen=from;screen="update";render();}
@@ -781,10 +781,16 @@ public final class MainActivity extends Activity {
     }
     @Override protected void onActivityResult(int request,int result,android.content.Intent data){
         super.onActivityResult(request,result,data);
-        if(request==SUBSCRIPTION_INPUT){
+        if(request==PROXY_HOST_INPUT||request==PROXY_PORT_INPUT){
             if(result==RESULT_OK&&data!=null){
-                Bundle values=android.app.RemoteInput.getResultsFromIntent(data);CharSequence text=values==null?null:values.getCharSequence("subscription");
-                if(text!=null&&!text.toString().trim().isEmpty())ProxyRuntime.importSubscription(text.toString().trim());
+                Bundle values=android.app.RemoteInput.getResultsFromIntent(data);
+                if(request==PROXY_HOST_INPUT){
+                    CharSequence text=values==null?null:values.getCharSequence("proxy_host");
+                    if(text!=null&&!text.toString().trim().isEmpty())ProxyRuntime.setEndpoint(text.toString().trim(),AppProxy.port());
+                }else{
+                    CharSequence text=values==null?null:values.getCharSequence("proxy_port");
+                    if(text!=null&&!text.toString().trim().isEmpty())ProxyRuntime.setEndpoint(AppProxy.host(),AppProxy.parsePort(text.toString()));
+                }
             }
             screen="proxy";render();return;
         }
@@ -1701,10 +1707,10 @@ public final class MainActivity extends Activity {
     private void openSettings(){settingsReturnScreen=screen.equals("ready")||screen.equals("done")?"ready":"bots";screen="settings";render();}
     private void leaveSettings(){screen=settingsReturnScreen.equals("ready")?"ready":"bots";render();}
     private void settings(){title("Settings");
-        ProxyRuntime.Snapshot vpn=preview?new ProxyRuntime.Snapshot("off","","","",0,0,false,false):ProxyRuntime.snapshot();
-        Button vpnButton=action("VPN: "+(vpn.connected?"On":"Off"),()->openProxyFrom("settings"));
-        vpnButton.setContentDescription("VPN, "+(vpn.connected?"on":"off")+". Double-tap to open VPN settings");
-        label(preview?"Import a subscription on the watch, pick a server, then connect. Grok never goes around the tunnel.":vpn.line(),12,vpn.connected?GREEN:SECONDARY);gap(8);
+        ProxyRuntime.Snapshot vpn=preview?new ProxyRuntime.Snapshot("on","","127.0.0.1:7890","",true,false,true):ProxyRuntime.snapshot();
+        Button vpnButton=action(vpn.line(),()->openProxyFrom("settings"));
+        vpnButton.setContentDescription(vpn.line());
+        label("Весь трафик Grok идёт через Watch VPN (HTTP CONNECT). Прямых соединений нет.",12,SECONDARY);gap(8);
         boolean alerts=replyAlerts();
         Button toggle=action("Reply alerts: "+(alerts?"On":"Off"),()->toggleReplyAlerts());toggle.setContentDescription("Reply alerts, "+(alerts?"on":"off")+". Double-tap to turn "+(alerts?"off":"on"));
         label(alertsBlocked?"Allow notifications for Grok Wear in your watch’s settings, then try again.":"Buzz when a Bot answers your message.",12,SECONDARY);gap(8);
@@ -1728,44 +1734,47 @@ public final class MainActivity extends Activity {
     }
     private void openProxyFrom(String from){proxyReturnScreen=from==null||from.isEmpty()?"settings":from;screen="proxy";render();}
     private void proxy(){
-        ProxyRuntime.Snapshot vpn=preview?new ProxyRuntime.Snapshot("off","","synthetic-nl","clash",2,0,false,false,new String[]{"synthetic-nl","synthetic-de"},"example.test"):ProxyRuntime.snapshot();
-        title("VPN");
-        label(vpn.busy?vpn.state:vpn.connected?"Connected":"Off",14,vpn.connected?GREEN:WHITE);
-        if(!vpn.error.isEmpty())label(vpn.error,12,ORANGE);
-        else if(!vpn.hostHint.isEmpty())label("Subscription · "+vpn.hostHint,12,SECONDARY);
-        else label("HTTPS Clash or vless:// from v2RayTun. Stored encrypted on the watch.",12,SECONDARY);
-        if(!vpn.selected.isEmpty())label("Server · "+vpn.selected+(vpn.delayMs>0?" · "+vpn.delayMs+" ms":""),12,SECONDARY);
-        if(vpn.servers>0)label(vpn.servers+" server"+(vpn.servers==1?"":"s"),12,SECONDARY);
+        ProxyRuntime.Snapshot vpn=preview?new ProxyRuntime.Snapshot("on","","127.0.0.1:7890","HTTP 200 · 12 мс",true,false,true):ProxyRuntime.snapshot();
+        title("Прокси");
+        label(vpn.line(),14,vpn.connected?GREEN:ORANGE);
+        if(!vpn.connected)label(AppProxy.OFF,12,ORANGE);
+        if(!vpn.check.isEmpty())label(vpn.check,12,SECONDARY);
         gap(8);
-        if(vpn.busy){Button busy=action(vpn.state,()->{});busy.setEnabled(false);}
-        else if(vpn.connected){
-            action("Disconnect",()->ProxyRuntime.disconnect());
-            action("Test latency",()->ProxyRuntime.test());
-        }else action("Connect",()->{if(preview)return;if(vpn.servers==0){importSubscription();return;}ProxyRuntime.connect();});
-        action("Import subscription",()->importSubscription());
-        if(vpn.servers>0)action("Servers",()->{screen="proxy_servers";render();});
+        action("Открыть Watch VPN",this::openWatchVpn);
+        if(vpn.busy){Button busy=action("Проверка…",()->{});busy.setEnabled(false);}
+        else action("Проверить",()->{if(preview)return;ProxyRuntime.check();});
+        action("Адрес: "+(preview?"127.0.0.1":AppProxy.host()),()->editProxyHost());
+        action("Порт: "+(preview?"7890":String.valueOf(AppProxy.port())),()->editProxyPort());
         gap(8);
-        label("App-only tunnel. No phone, no system VPN, no Shizuku.",12,SECONDARY);
+        label("Весь трафик Grok (вход, API, голос) идёт через HTTP CONNECT. Прямых соединений нет.",12,SECONDARY);
+        label("Сначала Watch VPN → Подключить, затем Grok Wear.",12,SECONDARY);
+        label("Unofficial Grok client. Not affiliated with xAI or Cursor.",12,SECONDARY);
         action("Back",()->handleBack());
     }
-    private void proxyServers(){
-        ProxyRuntime.Snapshot vpn=preview?new ProxyRuntime.Snapshot("off","","synthetic-nl","clash",2,0,false,false,new String[]{"synthetic-nl","synthetic-de"},""):ProxyRuntime.snapshot();
-        title("Servers");
-        if(vpn.names.length==0){label("Import a subscription first.",12,SECONDARY);action("Back",()->{screen="proxy";render();});return;}
-        for(String name:vpn.names){
-            Button row=action(name+(name.equals(vpn.selected)?" ✓":""),()->{if(preview)return;ProxyRuntime.select(name);screen="proxy";});
-            if(name.equals(vpn.selected))row.setTextColor(GREEN);
+    private void openWatchVpn(){
+        if(preview)return;
+        if(!ProxyRuntime.launchWatchVpn(this)){
+            safeError="Watch VPN не установлена. Поставьте Watch VPN 0.3.1, затем Подключить.";
+            screen="proxy";render();
         }
-        action("Back",()->{screen="proxy";render();});
     }
-    private void importSubscription(){
-        if(preview){screen="proxy";render();return;}
+    private void editProxyHost(){
+        if(preview)return;
         try{
             android.content.Intent input=androidx.wear.input.RemoteInputIntentHelper.createActionRemoteInputIntent();
-            android.app.RemoteInput field=new android.app.RemoteInput.Builder("subscription").setLabel("HTTPS subscription or vless://").build();
+            android.app.RemoteInput field=new android.app.RemoteInput.Builder("proxy_host").setLabel("127.0.0.1").build();
             androidx.wear.input.RemoteInputIntentHelper.putRemoteInputsExtra(input,java.util.Collections.singletonList(field));
-            startActivityForResult(input,SUBSCRIPTION_INPUT);
-        }catch(RuntimeException unavailable){safeError="Watch keyboard unavailable. Type the HTTPS URL with Wear text input.";screen="proxy";render();}
+            startActivityForResult(input,PROXY_HOST_INPUT);
+        }catch(RuntimeException unavailable){safeError="Watch keyboard unavailable.";screen="proxy";render();}
+    }
+    private void editProxyPort(){
+        if(preview)return;
+        try{
+            android.content.Intent input=androidx.wear.input.RemoteInputIntentHelper.createActionRemoteInputIntent();
+            android.app.RemoteInput field=new android.app.RemoteInput.Builder("proxy_port").setLabel("7890").build();
+            androidx.wear.input.RemoteInputIntentHelper.putRemoteInputsExtra(input,java.util.Collections.singletonList(field));
+            startActivityForResult(input,PROXY_PORT_INPUT);
+        }catch(RuntimeException unavailable){safeError="Watch keyboard unavailable.";screen="proxy";render();}
     }
     private void confirmSignOut(){
         if(!preview&&SIGN_OUT_ACTIVE.get()){title("Signing out…");label("Removing this watch’s sign-in and local Grok data.",13,SECONDARY);return;}
@@ -1840,7 +1849,10 @@ public final class MainActivity extends Activity {
             return;
         }
         title("Needs attention");label(safeError,14,SECONDARY);gap(9);
-        if(AppProxy.OFF.equals(safeError)||AppProxy.BROKEN.equals(safeError))action("VPN settings",()->openProxyFrom("account_error"));
+        if(AppProxy.OFF.equals(safeError)||AppProxy.BROKEN.equals(safeError)||(safeError!=null&&safeError.contains("Прокси не запущен"))){
+            action("Открыть Watch VPN",this::openWatchVpn);
+            action("Прокси",()->openProxyFrom("account_error"));
+        }
         if(!accountLink.isEmpty())action("Open on phone",()->{screen="access_link";render();});
         if(!preview)action("Sign in again",()->signInAgain());
         String detail=safeError;action("Report a problem",()->openReport("Needs attention: "+detail,"account_error"));

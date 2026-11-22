@@ -1,5 +1,0 @@
-# Official MetaCubeX/mihomo v1.19.34 binaries (gunzipped)
-# android-armv7 → app/src/main/jniLibs/armeabi-v7a/libmihomo.so
-5047466f174206ef718a505f09652ca8f17c1f126c4a60639dc1208be990c58d  libmihomo.so
-# linux-amd64-compatible → native/mihomo/bin/mihomo-linux-amd64
-5b6644c487e5dffae86b0e0e9bb5cec445579a3a9d03977c09576fee2aeefc01  mihomo-linux-amd64

@@ -2,13 +2,13 @@
 
 Grok Wear is a standalone Wear OS app written in Java with a programmatic UI. It talks to the Grok Bot service directly from the watch; there is no phone companion or relay server.
 
-This fork adds an **app-scoped VLESS + Reality tunnel** (embedded mihomo). All Grok HTTP and WebSocket traffic is fail-closed through a local HTTP CONNECT proxy on `127.0.0.1`. There is no `VpnService`, no system `http_proxy`, no Shizuku, and no phone relay.
+This **0.8.1 external-proxy** variant sends all Grok HTTP and WebSocket traffic fail-closed through Watch VPN’s HTTP CONNECT listener on `127.0.0.1:7890` (`Proxy.Type.HTTP`, unresolved hosts, no system `ProxySelector`). There is no embedded mihomo, no `VpnService`, and no direct fallback.
 
 Voice is **OkHttp WebSocket over HTTPS** to `api.x.ai`, not WebRTC/LiveKit, so the CONNECT proxy can carry the call. UDP/WebRTC tunnelling is not required for this client.
 
 ```text
-VPN:  HTTPS subscription ── Clash/V2Ray parse ── mihomo (libmihomo.so) ── 127.0.0.1 mixed-port
-      OkHttp (auth, API, voice WebSocket) ── HTTP CONNECT ── mihomo ── VLESS+Reality ── Grok
+Watch VPN (separate APK) ── mixed HTTP 127.0.0.1:7890
+Grok Wear OkHttp (auth, API, voice WebSocket) ── HTTP CONNECT ── Watch VPN ── VLESS ── Grok
 
 Sign in: watch QR code ── phone browser approval ── encrypted tokens on the watch
 
@@ -49,11 +49,9 @@ Talk:    sign-in check ─┬─ Bot voice setup (instructions + tools) ─┐
 | `AssistantRole`, `GrokAssistantService`, `GrokAssistantSessionService`, `GrokRecognitionService` | The assistant button. Once Grok Wear is chosen as the watch's digital assistant, holding the button opens a session that starts a call with the main Bot (the account's Primary Bot), switching to it first if another Bot is open. Nothing listens in the background; Android requires an assistant to name a speech recognizer, and this one refuses every request. |
 | `ProblemReport` | A private 15-line log of Bot list loads (first loads, recoveries and slow ones), calls and failures, with timing, network type and reason (the app's own message, a status code or an error type, never a network message, which can name the account's server). Report a problem (in Settings, and on the Bot list, call and sign-in error screens, naming that place) turns it into a QR code for an email to the developer (`mailto:`, the default) or a new GitHub issue, keeping the newest lines that fit a 900-character link, drawn one pixel per module so it scans from a watch screen. The latest failure, and any crash (written before the app closes), is kept as a trace: the root error type, the app's own limit when one was hit, and up to four frames of the app's own code, never a platform or network message. The report carries it as an "Error:" line, and the Bot list's Details screen shows it with the same log. |
 | `ReplyAlertService` | Foreground service that waits for the reply to a message sent from the watch, then posts a notification that opens the chat. It stays quiet if that chat is on screen, and the notice goes once the chat is read, here or elsewhere. |
-| `MainActivity` and views | Round-screen UI: Home roster, Bot page with chat, call screen, sign-in, settings and VPN. |
-| `AppProxy`, `HttpClients` | Fail-closed `ProxySelector` + interceptor. Grok OkHttp clients must not dial when the tunnel is off. Subscription fetch and the local mihomo API use `Proxy.NO_PROXY`. |
-| `SubscriptionParser`, `VlessUri`, `ClashYaml` | v2RayTun HTTPS bodies, Clash YAML, V2Ray base64 URI lists, `vless://` with Reality `pbk`/`sid`/`sni`/`fp`/`flow`. |
-| `ProxyStore`, `GrokVault` `.proxy-v1` | Encrypted subscription URL and server list (Android Keystore AES-GCM), same pattern as sign-in. |
-| `ProxyEngine`, `ProxyRuntime`, `ProxyService` | Exec of `libmihomo.so` from `nativeLibraryDir` (extracted JNI lib, allowed on API 36). Local mixed HTTP+SOCKS. Foreground service keeps the process alive. Not a system VPN. |
+| `MainActivity` and views | Round-screen UI: Home roster, Bot page with chat, call screen, sign-in, settings and Watch VPN proxy status. |
+| `AppProxy`, `HttpClients` | Fail-closed HTTP CONNECT to Watch VPN (`127.0.0.1:7890`). Custom `ProxySelector` (never the system one), `Dns` that throws for Grok hosts, TCP probe cached ~2 s, logcat tag `grokwear-proxy`. |
+| `ProxyRuntime` | Status line, GET check via the proxy, launch `com.aquanetworks.watchvpn`. |
 
 ## Call rules
 

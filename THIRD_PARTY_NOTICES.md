@@ -10,13 +10,13 @@ The app bundles these open-source libraries. Each is used under its own license.
 | [ZXing core](https://github.com/zxing/zxing) | 3.5.3 | Apache License 2.0 |
 | [AndroidX Core](https://developer.android.com/jetpack/androidx/releases/core) | 1.16.0 | Apache License 2.0 |
 | [AndroidX Wear Ongoing](https://developer.android.com/jetpack/androidx/releases/wear) | 1.0.0 | Apache License 2.0 |
-| [mihomo (Clash Meta)](https://github.com/MetaCubeX/mihomo) | 1.19.34 | [GPL-3.0](https://github.com/MetaCubeX/mihomo/blob/Meta/LICENSE) |
+| [AndroidX Wear Input](https://developer.android.com/jetpack/androidx/releases/wear) | 1.1.0 | Apache License 2.0 |
 
 The repository also contains the [Gradle Wrapper](https://docs.gradle.org/current/userguide/gradle_wrapper.html) (`gradle/wrapper/gradle-wrapper.jar`, Apache License 2.0).
 
 Test-only dependencies are not shipped in the app: [JUnit 4](https://junit.org/junit4/) (Eclipse Public License 1.0) and [JSON-java](https://github.com/stleary/JSON-java) (Public Domain).
 
-The APK embeds the mihomo engine as `libmihomo.so` (GPL-3.0). The Java application source in this repository remains MIT; the combined binary you install on a watch includes GPL-3.0 mihomo. The mihomo license text is at <https://github.com/MetaCubeX/mihomo/blob/Meta/LICENSE>.
+This 0.8.1 external-proxy APK does **not** embed mihomo. Routing is provided by the separate Watch VPN app.
 
 The full text of the Apache License 2.0 is available at <https://www.apache.org/licenses/LICENSE-2.0>.
 

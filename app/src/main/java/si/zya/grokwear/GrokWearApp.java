@@ -2,7 +2,7 @@ package si.zya.grokwear;
 
 import android.app.Application;
 
-/** Restores the in-app VPN on process start if the user left it connected. */
+/** Loads the Watch VPN HTTP CONNECT endpoint and starts fail-closed probing. */
 public final class GrokWearApp extends Application {
     @Override public void onCreate(){
         super.onCreate();
