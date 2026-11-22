@@ -53,13 +53,43 @@ This is an experimental client. It talks to Grok Bot's **private, undocumented c
 - The watch needs its own internet connection (Wi-Fi or LTE).
 - While Grok Wear is the watch's assistant, "Hey Google" and the watch's own assistant don't answer; choose another assistant in watch settings to switch back.
 - Reply alerts cover messages sent from the watch, for up to ten minutes after sending. Grok Bot's own push notifications go to its phone app only; Wear OS can mirror those to the watch, but tapping them opens the phone.
+- This fork will not talk to Grok until the in-app VPN is connected. There is no system VPN, no global HTTP proxy, and no Shizuku.
+
+## VPN on the watch (this fork)
+
+Install: **[INSTALL.md](INSTALL.md)** (Russian, WearLoad / ADB).
+
+The watch runs **mihomo 1.19.34** as `libmihomo.so` (`armeabi-v7a` only), listening on `127.0.0.1` for HTTP CONNECT and SOCKS5. Grok Wear's OkHttp clients (sign-in, API, live events, **voice WebSocket**) use that proxy. Voice is not WebRTC.
+
+### Что проверено / What was verified
+
+**Проверено в этой сборке (не на часах):**
+
+- Сборка подписанного APK, `compileSdk`/`targetSdk` 36, `abiFilters armeabi-v7a`.
+- В APK есть `lib/armeabi-v7a/libmihomo.so` (ELF 32-bit ARM EABI5 PIE), без arm64.
+- Юнит-тесты: Clash YAML, V2Ray base64, `vless://` + Reality (`pbk`/`sid`/`sni`/`fp`/`flow`), fail-closed (без туннеля Grok не вызывается).
+- Linux/amd64 mihomo на этой VM: поднимает mixed HTTP, SOCKS5 и REST API на `127.0.0.1`. Рукопожатие VLESS/Reality **не** проверялось (нет боевого сервера).
+
+**Не проверено на реальных Galaxy Watch Ultra:**
+
+- Реальное рукопожатие VLESS + Reality с подпиской v2RayTun.
+- Голосовой диалог с Grok через туннель.
+- Долгое нажатие Home / ассистент.
+- Bluetooth-гарнитура.
+- LTE (только Wi-Fi логика в коде; радио не тестировалось).
+- Расход батареи с mihomo в foreground-сервисе.
+- `exec` `libmihomo.so` из `nativeLibraryDir` на API 36 именно этой прошивки Samsung (на Android 16 это разрешено для извлечённых JNI-библиотек; если OEM запретит — ближайшая альтернатива: in-process `c-shared`, это не сделано в этом APK).
+- Эмулятор Wear x86_64 **не** запускает armv7 `.so` — UI/прокси на эмуляторе не прогонялись.
+
+Grok Wear использует неофициальный API, который может сломаться без предупреждения.
 
 ## Build from source
 
-Requirements: JDK 17 and the Android SDK (platform 36). The Gradle wrapper pins its own version.
+Requirements: JDK 17 and the Android SDK (platform 36). The Gradle wrapper pins its own version. The first release build downloads mihomo `android-armv7` into `app/src/main/jniLibs/armeabi-v7a/libmihomo.so` (gitignored, ~60 MB).
 
 ```sh
 ./gradlew :app:testDebugUnitTest :app:assembleRelease
+native/mihomo/smoke-test.sh   # linux/amd64 listeners only; no real VLESS server
 ```
 
 The APK is written to `app/build/outputs/apk/release/app-release.apk`. Without a signing configuration it is signed with your local debug key, which is fine for your own watch. To sign with your own key, create `keystore.properties` in the project root (it is git-ignored):

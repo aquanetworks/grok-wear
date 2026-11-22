@@ -73,9 +73,8 @@ public final class NativeVoiceSession {
     // Pings detect a silently dead socket (for example a Wi-Fi handover) without a read timeout
     // that would also end quiet listening periods. VoiceService reports outright network loss sooner.
     // One client for every call, so its connection pool can hand a warmed connection to the socket.
-    private static final OkHttpClient HTTP=new OkHttpClient.Builder().connectTimeout(15,TimeUnit.SECONDS)
-            .readTimeout(0,TimeUnit.SECONDS).writeTimeout(15,TimeUnit.SECONDS).pingInterval(15,TimeUnit.SECONDS)
-            .followRedirects(false).followSslRedirects(false).retryOnConnectionFailure(false).build();
+    private static final OkHttpClient HTTP=HttpClients.tunneled().connectTimeout(15,TimeUnit.SECONDS)
+            .readTimeout(0,TimeUnit.SECONDS).writeTimeout(15,TimeUnit.SECONDS).pingInterval(15,TimeUnit.SECONDS).build();
     private final OkHttpClient http=HTTP;
     /**
      * Opens a connection to the voice host while the Bot's plan and credential load, so the socket

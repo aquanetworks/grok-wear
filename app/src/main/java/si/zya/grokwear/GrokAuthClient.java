@@ -13,9 +13,8 @@ import okhttp3.Response;
 
 /** Fixed vendor destinations only. Calls must run on GrokClient's background worker. */
 final class GrokAuthClient {
-    private static final OkHttpClient HTTP=new OkHttpClient.Builder().connectTimeout(10,TimeUnit.SECONDS)
-            .readTimeout(20,TimeUnit.SECONDS).writeTimeout(20,TimeUnit.SECONDS).callTimeout(30,TimeUnit.SECONDS)
-            .followRedirects(false).followSslRedirects(false).retryOnConnectionFailure(false).build();
+    private static final OkHttpClient HTTP=HttpClients.tunneled().connectTimeout(10,TimeUnit.SECONDS)
+            .readTimeout(20,TimeUnit.SECONDS).writeTimeout(20,TimeUnit.SECONDS).callTimeout(30,TimeUnit.SECONDS).build();
     // EnsureSandBox answers once the Bot's sandbox is running, which can take a while when it was asleep.
     private static final OkHttpClient SANDBOX=HTTP.newBuilder().readTimeout(45,TimeUnit.SECONDS).callTimeout(60,TimeUnit.SECONDS).build();
     // The official clients give the access check 10 s.
@@ -108,7 +107,7 @@ final class GrokAuthClient {
             byte[] body=GrokVault.readBounded(response.body().byteStream(),1024*1024);
             try{return new GrokAuthCore.Reply(response.code(),new JSONObject(new String(body,StandardCharsets.UTF_8)));}
             finally{java.util.Arrays.fill(body,(byte)0);}
-        }
+        }catch(Exception failure){if(AppProxy.isClosed(failure))throw AppProxy.closed();throw failure;}
     }
     /** The refusal's safe parts; the body is read at most 16 KB and wiped. */
     static ServiceRefusal refusal(Response response){

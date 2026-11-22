@@ -1,5 +1,7 @@
 # Install Grok Wear on your watch
 
+This fork’s VPN-on-watch steps (WearLoad, assistant button, subscription) are in Russian: **[INSTALL.md](../INSTALL.md)**.
+
 ## TL;DR
 
 1. On the watch, turn on **ADB debugging** and **Wireless debugging** (in Developer options).
