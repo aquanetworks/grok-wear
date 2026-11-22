@@ -1,0 +1,106 @@
+plugins {
+    id 'com.android.application'
+    id 'org.jetbrains.kotlin.android'
+    id 'org.jetbrains.kotlin.plugin.compose'
+}
+
+def signingProps = new Properties()
+def signingFile = rootProject.file('keystore.properties')
+if (signingFile.exists()) signingFile.withInputStream { signingProps.load(it) }
+def signingValue = { String key ->
+    signingProps.getProperty(key) ?: System.getenv('WATCHVPN_' + key.toUpperCase()) ?: System.getenv('GROKWEAR_' + key.toUpperCase())
+}
+
+android {
+    namespace 'com.aquanetworks.watchvpn'
+    compileSdk 36
+    buildToolsVersion '35.0.0'
+    ndkVersion '27.2.12479018'
+    buildFeatures { buildConfig true; compose true }
+    defaultConfig {
+        applicationId 'com.aquanetworks.watchvpn'
+        minSdk 30
+        targetSdk 36
+        versionCode 5
+        versionName '0.3.1'
+        ndk { abiFilters 'armeabi-v7a' }
+        testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'
+        externalNativeBuild {
+            cmake {
+                arguments '-DANDROID_STL=none'
+                abiFilters 'armeabi-v7a'
+            }
+        }
+    }
+    signingConfigs {
+        if (signingValue('storeFile')) {
+            release {
+                storeFile file(signingValue('storeFile'))
+                storePassword signingValue('storePassword')
+                keyAlias signingValue('keyAlias')
+                keyPassword signingValue('keyPassword')
+            }
+        }
+    }
+    buildTypes {
+        release {
+            debuggable false
+            jniDebuggable false
+            signingConfig signingValue('storeFile') ? signingConfigs.release : signingConfigs.debug
+            minifyEnabled false
+            shrinkResources false
+        }
+    }
+    compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }
+    kotlinOptions { jvmTarget = '17' }
+    externalNativeBuild { cmake { path 'src/main/cpp/CMakeLists.txt' } }
+    packaging {
+        jniLibs {
+            useLegacyPackaging true
+            excludes += ['**/lib/arm64-v8a/**', '**/lib/x86/**', '**/lib/x86_64/**', '**/lib/armeabi/**']
+        }
+    }
+    androidResources { noCompress += ['so'] }
+    sourceSets.main.jniLibs.srcDirs = ['src/main/jniLibs']
+}
+
+def mihomoJniSo = file('src/main/jniLibs/armeabi-v7a/libmihomo-jni.so')
+tasks.register('buildMihomoJni', Exec) {
+    def script = file('native/mihomo-jni/build.sh')
+    inputs.files fileTree('native/mihomo-jni') { include '**/*.go', '**/*.c', 'go.mod', 'go.sum', 'build.sh' }
+    outputs.file mihomoJniSo
+    workingDir file('native/mihomo-jni')
+    commandLine 'bash', './build.sh', mihomoJniSo.absolutePath
+    environment 'ANDROID_HOME', System.getenv('ANDROID_HOME') ?: '/home/ubuntu/android-sdk'
+    environment 'ANDROID_SDK_ROOT', System.getenv('ANDROID_SDK_ROOT') ?: '/home/ubuntu/android-sdk'
+    environment 'ANDROID_NDK_HOME', System.getenv('ANDROID_NDK_HOME') ?: '/home/ubuntu/android-sdk/ndk/27.2.12479018'
+    doFirst { mihomoJniSo.parentFile.mkdirs() }
+}
+tasks.matching { it.name.startsWith('pre') && it.name.endsWith('Build') }.configureEach { dependsOn 'buildMihomoJni' }
+tasks.matching { it.name.contains('Merge') && it.name.contains('JniLib') }.configureEach { dependsOn 'buildMihomoJni' }
+
+dependencies {
+    implementation 'com.squareup.okhttp3:okhttp:4.12.0'
+    implementation 'androidx.core:core-ktx:1.16.0'
+    implementation 'androidx.activity:activity-compose:1.9.3'
+    implementation 'androidx.wear:wear-ongoing:1.0.0'
+    implementation 'androidx.wear:wear-input:1.1.0'
+    implementation 'androidx.wear.compose:compose-material:1.4.1'
+    implementation 'androidx.wear.compose:compose-foundation:1.4.1'
+    implementation 'androidx.compose.ui:ui:1.7.5'
+    implementation 'androidx.compose.runtime:runtime:1.7.5'
+    implementation 'androidx.wear.tiles:tiles:1.4.1'
+    implementation 'androidx.wear.protolayout:protolayout:1.2.1'
+    implementation 'androidx.wear.protolayout:protolayout-expression:1.2.1'
+    implementation 'androidx.concurrent:concurrent-futures:1.2.0'
+    implementation 'com.google.guava:listenablefuture:1.0'
+    testImplementation 'junit:junit:4.13.2'
+    testImplementation 'org.json:json:20240303'
+}
+
+tasks.register('printApkInfo') {
+    dependsOn 'assembleRelease'
+    doLast {
+        println file('build/outputs/apk/release').listFiles()
+    }
+}

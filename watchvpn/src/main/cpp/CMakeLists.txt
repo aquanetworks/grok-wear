@@ -1,0 +1,5 @@
+cmake_minimum_required(VERSION 3.22)
+project(watchvpn-spawn)
+add_library(watchvpn-spawn SHARED spawn.c)
+find_library(log-lib log)
+target_link_libraries(watchvpn-spawn ${log-lib})

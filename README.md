@@ -12,6 +12,32 @@ Talk to any of your Grok Bots from your Wear OS watch. Hands-free, real-time voi
 
 **Works on:** Wear OS 3+ (API 30+). Tested on Galaxy Watch, Pixel Watch and the Wear OS emulator.
 
+## Watch VPN (system HTTP proxy, separate APK)
+
+This fork also ships **Watch VPN** — a standalone Wear OS app (`com.aquanetworks.watchvpn`) that runs **mihomo in-process** (`libmihomo-jni.so`, c-shared, armeabi-v7a) as a mixed HTTP/SOCKS listener on `127.0.0.1:7890`. Android `http_proxy` points apps that honor it at that listener.
+
+Galaxy Watch Ultra has **no `IVpnManager`**. Android’s phantom-process killer reaps an exec’d `libmihomo.so` child — 0.3.x does not exec.
+
+**WhatsApp, Telegram and many messengers ignore system HTTP proxy.**
+
+Install: **[INSTALL-VPN.md](INSTALL-VPN.md)**. APK: `watch-vpn-armeabi-v7a.apk` (**0.3.1**). Connected is shown only after TCP accept on 7890 **and** a generate_204 delay through the selected node. Startup waits up to 30 s for the port (500 ms poll) and never failSafes during that grace; later health needs 3 consecutive 10 s misses. Logs: logcat tags `mihomo`, `watchvpn`, `watchvpn-config`. Prefer `pm grant … WRITE_SECURE_SETTINGS` once. Optional: `dumpsys deviceidle whitelist +com.aquanetworks.watchvpn`.
+
+### Что проверено / What was verified (Watch VPN)
+
+**Проверено в этой сборке (не на часах):**
+
+- Подписанный APK, `versionName` 0.3.1, `armeabi-v7a`.
+- `lib/armeabi-v7a/libmihomo-jni.so`: ELF 32-bit ARM **shared object** (не PIE executable), SONAME `libmihomo-jni.so`, JNI `nativeStart`/`Stop`/`Running`.
+- Юнит-тесты: parsers, UA fallback, proxy YAML (redir-host + 1.1.1.1/8.8.8.8), Reality fp=chrome, xhttp mapping, delay error strings, grace/streak, config redact.
+- **In-process Start на часах, VLESS handshake и живой `http_proxy` не проверялись на этой VM.**
+
+**Не проверено на Galaxy Watch Ultra (нужен прогон 0.3.1):**
+
+- 30 с grace: 7890 успевает LISTEN; watchdog не убивает на 1.8 с.
+- Delay API пишет точную ошибку Reality/TLS/DNS в `mihomo` / Журнал.
+- Grant + auto http_proxy; браузер через узел.
+- WhatsApp/Telegram по-прежнему без прокси (ожидаемо).
+
 ## What it does
 
 <p align="center">

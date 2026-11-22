@@ -1,0 +1,6 @@
+<resources>
+    <string name="app_name">Watch VPN</string>
+    <string name="hint_subscription">HTTPS-ссылка v2RayTun или Clash YAML</string>
+    <string name="err_no_keyboard">На часах нет экрана ввода. Импортируйте ссылку через ADB: clash://install-config?url=…</string>
+    <string name="tile_label">Watch VPN</string>
+</resources>

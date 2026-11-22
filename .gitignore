@@ -1,5 +1,7 @@
 .gradle/
 **/build/
+.cxx/
+**/.cxx/
 local.properties
 *.apk
 *.apks
@@ -7,6 +9,8 @@ local.properties
 *.keystore
 dist/
 keystore.properties
+watchvpn/src/main/jniLibs/
+watchvpn/native/bin/
 .idea/
 *.iml
 .DS_Store

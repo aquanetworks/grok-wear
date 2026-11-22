@@ -10,6 +10,10 @@ The app bundles these open-source libraries. Each is used under its own license.
 | [ZXing core](https://github.com/zxing/zxing) | 3.5.3 | Apache License 2.0 |
 | [AndroidX Core](https://developer.android.com/jetpack/androidx/releases/core) | 1.16.0 | Apache License 2.0 |
 | [AndroidX Wear Ongoing](https://developer.android.com/jetpack/androidx/releases/wear) | 1.0.0 | Apache License 2.0 |
+| [mihomo (Clash Meta)](https://github.com/MetaCubeX/mihomo) (Watch VPN APK) | 1.19.34 | [GPL-3.0](https://github.com/MetaCubeX/mihomo/blob/Meta/LICENSE) |
+| [AndroidX Wear Compose / Tiles](https://developer.android.com/jetpack/androidx/releases/wear) (Watch VPN) | 1.4.x | Apache License 2.0 |
+
+The **Watch VPN** APK (`com.aquanetworks.watchvpn`) embeds mihomo as `libmihomo.so` (GPL-3.0). Application source in this repository remains MIT; the combined binary includes GPL-3.0 mihomo.
 
 The repository also contains the [Gradle Wrapper](https://docs.gradle.org/current/userguide/gradle_wrapper.html) (`gradle/wrapper/gradle-wrapper.jar`, Apache License 2.0).
 
