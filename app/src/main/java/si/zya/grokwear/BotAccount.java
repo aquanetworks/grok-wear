@@ -16,9 +16,8 @@ final class BotAccount {
     final HistoryCoordinator continuity;
     private static final java.util.concurrent.atomic.AtomicBoolean RECOVERING=new java.util.concurrent.atomic.AtomicBoolean();
     private static final java.util.concurrent.ExecutorService RECOVERY=java.util.concurrent.Executors.newSingleThreadExecutor(r->{Thread t=new Thread(r,"grok-history-recovery");t.setDaemon(true);return t;});
-    private static final OkHttpClient HTTP=new OkHttpClient.Builder().connectTimeout(10,TimeUnit.SECONDS)
-        .readTimeout(20,TimeUnit.SECONDS).writeTimeout(20,TimeUnit.SECONDS).callTimeout(30,TimeUnit.SECONDS)
-        .followRedirects(false).followSslRedirects(false).retryOnConnectionFailure(false).build();
+    private static final OkHttpClient HTTP=HttpClients.tunneled().connectTimeout(10,TimeUnit.SECONDS)
+        .readTimeout(20,TimeUnit.SECONDS).writeTimeout(20,TimeUnit.SECONDS).callTimeout(30,TimeUnit.SECONDS).build();
     // History reads are small. A transfer that stalls this long on a weak watch link is
     // usually a dead connection, so the single read retry below starts a fresh one.
     private static final OkHttpClient HISTORY=HTTP.newBuilder().readTimeout(8,TimeUnit.SECONDS).build();
@@ -872,9 +871,11 @@ final class BotAccount {
                 }finally{java.util.Arrays.fill(received,(byte)0);}
             }
         }catch(GrokCore.Failure safe){throw safe;}
-        // A dropped or timed-out request may have reached Grok: not a refusal.
-        // The cause stays for Report a problem; only this wording is shown.
-        catch(Exception failure){GrokCore.Failure lost=new GrokCore.Failure("Grok connection failed. Check sign-in before trying again.",false);lost.initCause(failure);throw lost;}
+        catch(Exception failure){
+            if(AppProxy.isClosed(failure))throw AppProxy.closed();
+            // A dropped or timed-out request may have reached Grok: not a refusal.
+            // The cause stays for Report a problem; only this wording is shown.
+            GrokCore.Failure lost=new GrokCore.Failure("Grok connection failed. Check sign-in before trying again.",false);lost.initCause(failure);throw lost;}
         finally{java.util.Arrays.fill(bytes,(byte)0);}
     }
 }

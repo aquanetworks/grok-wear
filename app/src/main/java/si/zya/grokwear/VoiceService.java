@@ -65,7 +65,7 @@ public final class VoiceService extends Service {
         PowerManager power=(PowerManager)activity.getSystemService(POWER_SERVICE);
         KeyguardManager keyguard=(KeyguardManager)activity.getSystemService(KEYGUARD_SERVICE);
         if(activity.isFinishing()||activity.isDestroyed()||!activity.hasWindowFocus()||!activity.getWindow().getDecorView().isShown()
-                ||!power.isInteractive()||keyguard.isKeyguardLocked()||activity.checkSelfPermission(Manifest.permission.RECORD_AUDIO)!=PackageManager.PERMISSION_GRANTED||current.active||savingRecord)return false;
+                ||!power.isInteractive()||keyguard.isKeyguardLocked()||activity.checkSelfPermission(Manifest.permission.RECORD_AUDIO)!=PackageManager.PERMISSION_GRANTED||current.active||savingRecord||!AppProxy.ready())return false;
         String admission=UUID.randomUUID().toString();synchronized(VoiceService.class){ticket=admission;ticketTime=SystemClock.elapsedRealtime();historyEpoch++;}
         publish(new Snapshot("Connecting","","","","",true,false,0,0));
         try{activity.startForegroundService(new Intent(activity,VoiceService.class).setAction(START).putExtra("admission",admission));return true;}

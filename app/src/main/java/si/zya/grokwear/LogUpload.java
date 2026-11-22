@@ -80,8 +80,7 @@ final class LogUpload {
     }
     static String authHeader(String key){return "Sentry sentry_version=7, sentry_client=grok-wear/"+BuildConfig.VERSION_NAME+", sentry_key="+key;}
 
-    private static final OkHttpClient HTTP=new OkHttpClient.Builder().connectTimeout(10,TimeUnit.SECONDS).callTimeout(20,TimeUnit.SECONDS)
-            .followRedirects(false).followSslRedirects(false).retryOnConnectionFailure(false).build();
+    private static final OkHttpClient HTTP=HttpClients.tunneled().connectTimeout(10,TimeUnit.SECONDS).callTimeout(20,TimeUnit.SECONDS).build();
 
     /**
      * Sends one report. Returns its short Log ID. Throws a Failure with a short reason; the QR code works either way.

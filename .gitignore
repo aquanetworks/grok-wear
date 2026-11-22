@@ -7,6 +7,8 @@ local.properties
 *.keystore
 dist/
 keystore.properties
+app/src/main/jniLibs/
+native/mihomo/bin/
 .idea/
 *.iml
 .DS_Store
