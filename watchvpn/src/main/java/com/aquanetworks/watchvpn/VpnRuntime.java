@@ -1,0 +1,220 @@
+package com.aquanetworks.watchvpn;
+
+import android.app.Application;
+import android.content.Context;
+import android.content.Intent;
+import android.net.Uri;
+import android.os.Handler;
+import android.os.Looper;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import org.json.JSONObject;
+
+/** Process-wide coordinator. UI and the VPN service publish through here. */
+final class VpnRuntime {
+    interface Listener { void onChange(Snapshot snapshot); }
+    private static final Handler MAIN=new Handler(Looper.getMainLooper());
+    private static final ExecutorService WORK=Executors.newSingleThreadExecutor();
+    private static final CopyOnWriteArrayList<Listener> LISTENERS=new CopyOnWriteArrayList<>();
+    private static Application APP;
+    private static volatile Snapshot LAST=Snapshot.empty();
+    private static volatile String PHASE="idle",ERROR="";
+
+    static synchronized void attach(Application app){
+        APP=app;
+        WORK.execute(()->{
+            try{
+                Store store=Store.get(app);
+                if(store.wantConnected()&&VpnConsent.prepareReady(app)){
+                    WatchVpnService.start(app);
+                }
+                publishLocked();
+            }catch(Exception e){error(safe(e));}
+        });
+    }
+    static void addListener(Listener listener){LISTENERS.add(listener);listener.onChange(LAST);}
+    static void removeListener(Listener listener){LISTENERS.remove(listener);}
+    static Snapshot snapshot(){return LAST;}
+    static void connect(){
+        WORK.execute(()->{
+            try{
+                Store store=Store.get(APP);
+                if(store.nodes().isEmpty()){error("Import a subscription first.");return;}
+                store.setWantConnected(true);
+                phase("connecting");
+                if(!VpnConsent.prepareReady(APP)){
+                    error(VpnConsent.appopsAllowed(APP)?VpnConsent.DENIED:VpnConsent.MISSING_UI);
+                    return;
+                }
+                WatchVpnService.start(APP);
+            }catch(Exception e){error(safe(e));}
+        });
+    }
+    static void disconnect(){
+        WORK.execute(()->{
+            try{
+                Store.get(APP).setWantConnected(false);
+                phase("stopping");
+                WatchVpnService.stop(APP);
+            }catch(Exception e){error(safe(e));}
+        });
+    }
+    static void toggle(){
+        if(LAST.wantConnected||LAST.connected())disconnect();else connect();
+    }
+    static void importText(String raw){
+        WORK.execute(()->{
+            try{
+                phase("updating");
+                String text=raw==null?"":raw.trim();
+                if(text.isEmpty()){error("Empty subscription.");return;}
+                String url=ImportLinks.extract(text);
+                if(!url.isEmpty()){
+                    SubscriptionParser.Result parsed=SubscriptionParser.parse(SubClient.fetch(url));
+                    Store.get(APP).importUrl(url,parsed);
+                    PHASE="idle";ERROR=parsed.warning;
+                    publishLocked();
+                    if(Store.get(APP).wantConnected()&&VpnConsent.prepareReady(APP))WatchVpnService.reload(APP);
+                    return;
+                }
+                SubscriptionParser.Result parsed=SubscriptionParser.parse(text);
+                Store.get(APP).importUrl("",parsed);
+                PHASE="idle";ERROR=parsed.warning;
+                publishLocked();
+            }catch(Exception e){error(safe(e));}
+        });
+    }
+    static void importIntent(Intent intent){
+        if(intent==null)return;
+        Uri uri=intent.getData();
+        String raw="";
+        if(uri!=null){
+            String q=uri.getQueryParameter("url");
+            if(q==null||q.isEmpty())q=uri.getQueryParameter("config");
+            raw=q!=null&&!q.isEmpty()?q:uri.toString();
+        }
+        if(raw.isEmpty()&&intent.getStringExtra("url")!=null)raw=intent.getStringExtra("url");
+        if(!raw.isEmpty())importText(raw);
+    }
+    static void refreshSubscription(){
+        WORK.execute(()->{
+            try{
+                String url=Store.get(APP).subscriptionUrl();
+                if(url.isEmpty()){error("No saved subscription URL. Enter one first.");return;}
+                importText(url);
+            }catch(Exception e){error(safe(e));}
+        });
+    }
+    static void select(String name){
+        WORK.execute(()->{
+            try{
+                Store.get(APP).select(name);
+                if(MihomoEngine.alive()){
+                    new MihomoApi(TunConfig.API_PORT,Store.get(APP).secret()).select(TunConfig.GROUP,name);
+                }
+                publishLocked();
+            }catch(Exception e){error(safe(e));}
+        });
+    }
+    static void testLatency(String name){
+        WORK.execute(()->{
+            try{
+                phase("testing");
+                boolean started=false;
+                if(!MihomoEngine.alive()){
+                    Store store=Store.get(APP);
+                    String yaml=store.yaml(false,false);
+                    MihomoEngine.start(APP,yaml,-1);
+                    started=true;
+                    waitReady(store.secret(),40);
+                }
+                MihomoApi api=new MihomoApi(TunConfig.API_PORT,Store.get(APP).secret());
+                if(!name.isEmpty())api.select(TunConfig.GROUP,name);
+                int delay=api.delay(name.isEmpty()?Store.get(APP).selected():name,5000);
+                LinkedHashMap<String,Integer> map=new LinkedHashMap<>();
+                map.put(name.isEmpty()?Store.get(APP).selected():name,delay);
+                Store.get(APP).putDelays(mergeDelays(map));
+                if(started&&!Store.get(APP).wantConnected())MihomoEngine.stop();
+                PHASE=MihomoEngine.alive()&&Store.get(APP).wantConnected()?"connected":"idle";
+                ERROR="";
+                publishLocked();
+            }catch(Exception e){
+                try{if(!Store.get(APP).wantConnected())MihomoEngine.stop();}catch(Exception ignored){}
+                error(safe(e));
+            }
+        });
+    }
+    static void onServicePhase(String phase,String error){
+        WORK.execute(()->{
+            PHASE=phase==null?"idle":phase;
+            ERROR=error==null?"":error;
+            publishLocked();
+        });
+    }
+    static void consentDenied(){
+        error(VpnConsent.DENIED);
+    }
+    static void consentMissing(){
+        error(VpnConsent.MISSING_UI);
+    }
+    private static void phase(String phase){PHASE=phase;ERROR="";publishLocked();}
+    private static void error(String message){
+        PHASE="error";ERROR=message==null?"":message;publishLocked();
+    }
+    private static void publishLocked(){
+        try{
+            Store store=Store.get(APP);
+            JSONObject root=store.snapshot();
+            List<Map<String,Object>> nodes=SubscriptionParser.fromJson(root.optJSONArray("nodes"));
+            String selected=TunConfig.selectedName(nodes,root.optString("selected",""));
+            ArrayList<Snapshot.ServerRow> rows=new ArrayList<>();
+            org.json.JSONObject delays=root.optJSONObject("delays");
+            for(Map<String,Object> node:nodes){
+                String name=String.valueOf(node.get("name"));
+                int delay=delays==null?-1:delays.optInt(name,-1);
+                rows.add(new Snapshot.ServerRow(name,String.valueOf(node.getOrDefault("type","")),delay,name.equals(selected)));
+            }
+            int last=selected.isEmpty()||delays==null?-1:delays.optInt(selected,-1);
+            Snapshot snap=new Snapshot(PHASE,ERROR,selected,ImportLinks.maskUrl(root.optString("subscriptionUrl","")),
+                root.optString("kind",""),VpnConsent.describe(APP),
+                root.optBoolean("wantConnected",false),VpnConsent.prepareReady(APP),VpnConsent.appopsAllowed(APP),
+                MihomoEngine.alive(),root.optBoolean("ipv6",true),last,rows);
+            LAST=snap;
+            MAIN.post(()->{for(Listener l:LISTENERS)l.onChange(snap);});
+        }catch(Exception e){
+            Snapshot snap=new Snapshot("error",safe(e),"","","","",false,false,false,false,true,-1,java.util.Collections.emptyList());
+            LAST=snap;
+            MAIN.post(()->{for(Listener l:LISTENERS)l.onChange(snap);});
+        }
+    }
+    private static Map<String,Integer> mergeDelays(Map<String,Integer> extra)throws Exception{
+        LinkedHashMap<String,Integer> all=new LinkedHashMap<>();
+        org.json.JSONObject existing=Store.get(APP).snapshot().optJSONObject("delays");
+        if(existing!=null){
+            java.util.Iterator<String> keys=existing.keys();
+            while(keys.hasNext()){String k=keys.next();all.put(k,existing.optInt(k,-1));}
+        }
+        all.putAll(extra);
+        return all;
+    }
+    private static void waitReady(String secret,int ticks)throws Exception{
+        MihomoApi api=new MihomoApi(TunConfig.API_PORT,secret);
+        for(int i=0;i<ticks;i++){
+            if(api.ready())return;
+            Thread.sleep(150);
+        }
+        throw WatchFail.of("VPN engine did not open its control port.");
+    }
+    static String safe(Exception e){
+        if(e instanceof WatchFail && e.getMessage()!=null)return e.getMessage();
+        String m=e.getMessage();
+        if(m!=null&&m.length()<180&&!m.contains("://")&&!m.contains("token="))return m;
+        return "Something went wrong.";
+    }
+    static Context app(){return APP;}
+}

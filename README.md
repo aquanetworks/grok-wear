@@ -12,6 +12,32 @@ Talk to any of your Grok Bots from your Wear OS watch. Hands-free, real-time voi
 
 **Works on:** Wear OS 3+ (API 30+). Tested on Galaxy Watch, Pixel Watch and the Wear OS emulator.
 
+## Watch VPN (system-wide, separate APK)
+
+This fork also ships **Watch VPN** — a standalone Wear OS app (`com.aquanetworks.watchvpn`) that runs **mihomo on a system TUN** so *every* app on the watch (WhatsApp, the browser, …) uses a VLESS + Reality subscription. It is **not** Grok Wear: different `applicationId`, different APK, round watch-first UI (the reason ClashMetaForAndroid’s Profiles tab is unusable on a Galaxy Watch Ultra).
+
+Install: **[INSTALL-VPN.md](INSTALL-VPN.md)** (Russian, WearLoad / ADB, `appops ACTIVATE_VPN`).
+
+APK: `watch-vpn-armeabi-v7a.apk`. Engine: mihomo 1.19.34 as `libmihomo.so` (`armeabi-v7a`), started by a tiny JNI `fork`/`exec` so the `VpnService` TUN fd is inherited as fd 3 (`tun.file-descriptor`). Java `ProcessBuilder` cannot pass extra fds (CLOEXEC). The app UID is excluded from the TUN (`addDisallowedApplication`) so mihomo’s own sockets do not loop. DNS is fake-ip; IPv4+IPv6 routes; always-on / auto-reconnect; subscription URL in Android Keystore.
+
+### Что проверено / What was verified (Watch VPN)
+
+**Проверено в этой сборке (не на часах):**
+
+- Подписанный APK, `compileSdk`/`targetSdk` 36, `abiFilters armeabi-v7a`.
+- В APK есть `lib/armeabi-v7a/libmihomo.so` и `libwatchvpn-spawn.so`, без arm64.
+- Юнит-тесты: Clash YAML, V2Ray base64, `vless://` + Reality (`pbk`/`sid`/`sni`/`fp`/`flow`), `clash://install-config?url=`, TUN YAML (`file-descriptor`, fake-ip, `auto-route: false`).
+- Linux/amd64 mihomo на этой VM: mixed HTTP, SOCKS5 и REST на `127.0.0.1`. **TUN fd и рукопожатие VLESS/Reality не проверялись** (нет VpnService и нет боевого сервера).
+
+**Не проверено на реальных Galaxy Watch Ultra:**
+
+- Диалог `VpnService.prepare()` (часто отсутствует на Wear) и обход `adb shell appops set com.aquanetworks.watchvpn ACTIVATE_VPN allow`.
+- Реальное рукопожатие VLESS + Reality / подписка v2RayTun.
+- WhatsApp и прочие приложения через системный TUN.
+- Always-on VPN, LTE, IPv6-маршруты, автопереподключение после обрыва.
+- Quick Settings tile / Wear tile, ввод URL с безеля, батарея с TUN + gvisor/mixed.
+- Эмулятор Wear x86 **не** запускает `armeabi-v7a` `.so`.
+
 ## What it does
 
 <p align="center">
