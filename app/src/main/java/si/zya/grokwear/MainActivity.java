@@ -50,7 +50,8 @@ public final class MainActivity extends Activity {
     private final Runnable offlineRetry=this::retryOffline;
     private void retryOffline(){if(visible&&accountOffline&&screen.equals("account_error"))recover();}
     private Runnable rosterRetry;
-    private String settingsReturnScreen="bots";
+    private String settingsReturnScreen="bots",proxyReturnScreen="welcome",previewHomeId="",previewHomeName="";
+    private static final int PROXY_HOST_INPUT=33,PROXY_PORT_INPUT=34;
     private static final java.util.concurrent.atomic.AtomicBoolean SIGN_OUT_ACTIVE=new java.util.concurrent.atomic.AtomicBoolean();
     private static volatile boolean signOutFailed;
     private final Runnable signOutObserver=new Runnable(){public void run(){if(!visible)return;if(SIGN_OUT_ACTIVE.get()){main.postDelayed(this,100);return;}finishSignOut();}};
@@ -114,7 +115,7 @@ public final class MainActivity extends Activity {
     private boolean alertsBlocked,previewAlerts=true;
     private static final int NOTIFICATIONS=18;
     // The assistant button: a call with the main Bot once the account has loaded, and its Settings switch.
-    private boolean pendingAssist,previewButton;private int assistNavigation;private long assistUntil;
+    private boolean pendingAssist,previewButton,previewHeadset,previewHeadsetHangUp=true;private int assistNavigation;private long assistUntil;
     // pickToCall: the assistant button with no main or open Bot, so the next Bot tapped is called.
     // preferencesKnown: the account's main Bot and pins arrived, so "no main Bot" is a fact, not a gap.
     private boolean pickToCall,preferencesKnown;private long rosterStartedElapsed;private TextView loadingLine;private String reportReturnScreen="settings",reportWhere="",accountLink="",authSummary="",logId="",logUploadNote="";private boolean sendLogs,logUploading;private boolean reportByEmail=true;
@@ -138,6 +139,7 @@ public final class MainActivity extends Activity {
     private JSONArray bots=new JSONArray();
     private String receiptIdentity="",receiptSync="";private long receiptElapsed;private boolean receiptRefreshPending;private JSONObject avatarTheme;
     private JSONObject selectedMetadata=new JSONObject();private JSONObject botPreferences=new JSONObject();private LinearLayout transcriptBody;private boolean micTicked;
+    private final Runnable proxyListener=()->{if(visible&&(screen.startsWith("proxy")||screen.equals("settings")||screen.equals("welcome")||screen.equals("bots")))render();};
     private final Runnable voiceListener=()->{
         if(!visible||preview)return;VoiceService.Snapshot status=VoiceService.snapshot();
         if(!status.active&&!receiptIdentity.isEmpty()){receiptElapsed=status.elapsedMs;receiptSync=status.syncStatus;}
@@ -213,23 +215,74 @@ public final class MainActivity extends Activity {
         else if(preview){previewMedia=intent.getBooleanExtra("preview_media",false);setPreviewScreen(intent.getStringExtra("preview_screen"));}
         else{pendingOpenBot=openBotExtra(intent);noteAssist(intent);} // onResume's account load opens it.
     }
-    /** The assistant button, through GrokAssistantSessionService: a call with the main Bot after the account loads. */
+    /** Home, headset VOICE_COMMAND, hands-free search, or the assistant gesture: a call after the account loads. */
     private void noteAssist(Intent intent){
         String action=intent==null?null:intent.getAction();
-        if(!Intent.ACTION_ASSIST.equals(action)&&!"android.intent.action.VOICE_ASSIST".equals(action))return;
+        if(!AssistLaunch.isAssistAction(action))return;
+        AssistLaunch.wakeForAssist(this,intent);
+        AssistLaunch.note(intent,"activity");
         pendingAssist=true;pendingOpenBot="";
     }
-    /** The assistant button: talk to the main Bot, switching to it first when another Bot is open. */
+    /** The assistant / headset button: talk to the Home-button Bot (or the account primary), switching to it first when another Bot is open. */
     private void assist(JSONObject current){
         if(VoiceService.snapshot().active||isCall()){renderVoice();return;}
-        JSONObject primary=primaryBot();String id=primary!=null?primary.optString("id",""):current.optString("id","");
+        JSONObject target=assistBot(current);String id=target==null?"":target.optString("id","");
+        AssistLaunch.log("call bot="+(id.isEmpty()?"picker":id)+" source=assist");
         if(id.isEmpty()){openBotPicker();pickToCall=true;render();return;}
         // Debug builds: emulator tests check the launch without calling a real Bot.
         if(BuildConfig.DEBUG&&getSharedPreferences("grokwear_ui",MODE_PRIVATE).getBoolean("assist_dry_run",false)){
-            android.util.Log.i("GrokWearAssist","assist_dry_run main="+(primary!=null)+" switch="+!id.equals(current.optString("id","")));
+            android.util.Log.i("GrokWearAssist","assist_dry_run home="+id+" switch="+!id.equals(current.optString("id","")));
             screen="ready";render();return;}
         if(!id.equals(current.optString("id",""))){screen="bots";render();chooseBot(id,false);}else{screen="ready";render();loadBotChat();}
         assistNavigation=navigation;assistUntil=android.os.SystemClock.elapsedRealtime()+30000;main.removeCallbacks(assistTalk);main.post(assistTalk);
+    }
+    /** Chosen Home bot if it is still in the roster; else primary; else the Bot already open; else picker. */
+    private JSONObject assistBot(JSONObject current){
+        HomeButton.Resolved resolved=HomeButton.resolve(homeChoice(),bots,primaryBot());
+        if(resolved.stale)clearHomeBot(false);
+        if(resolved.bot!=null)return resolved.bot;
+        if(current!=null&&!current.optString("id","").isEmpty())return current;
+        return null;
+    }
+    private HomeButton.Choice homeChoice(){
+        if(preview)return new HomeButton.Choice(previewHomeId,previewHomeName);
+        return HomeButton.load(this);
+    }
+    private void clearHomeBot(boolean renderAfter){
+        if(preview){previewHomeId="";previewHomeName="";}else HomeButton.clear(this);
+        if(renderAfter&&visible)render();
+    }
+    private void setHomeBot(JSONObject bot){
+        String id=bot==null?"":bot.optString("id",""),name=bot==null?"":bot.optString("name","");
+        if(id.isEmpty()){clearHomeBot(false);}
+        else if(preview){previewHomeId=id;previewHomeName=name;}
+        else HomeButton.save(this,id,name);
+        if(root!=null)root.performHapticFeedback(android.view.HapticFeedbackConstants.CONFIRM);
+        if(screen.equals("bot_actions")){closeBotActions();return;}
+        if(screen.equals("home_picker")){screen="settings";render();return;}
+        render();
+    }
+    private void homeAssignAction(JSONObject bot){
+        if(bot==null||bot.optString("id","").isEmpty())return;
+        boolean here=HomeButton.isChosen(homeChoice(),bot.optString("id"));
+        String label=here?HomeButton.ASSIGNED:HomeButton.ASSIGN;
+        action(label,()->{if(here)return;setHomeBot(bot);});
+    }
+    private void homePicker(){
+        title(HomeButton.ROW);
+        HomeButton.Choice choice=homeChoice();
+        boolean primary=choice.followsPrimary();
+        Button first=action(HomeButton.PRIMARY_OPTION,()->setHomeBot(null));
+        if(primary)first.setTextColor(Color.BLACK);
+        if(primary)first.setBackground(shape(WHITE,24));
+        for(JSONObject bot:HomeButton.picker(bots,pinIds())){
+            String name=bot.optString("name","Unnamed Bot");boolean selected=HomeButton.isChosen(choice,bot.optString("id"));
+            Button row=action(name,()->setHomeBot(bot));
+            if(selected){row.setTextColor(Color.BLACK);row.setBackground(shape(WHITE,24));}
+        }
+        if(!preview&&bots.length()==0)label("No Bots loaded yet.",12,SECONDARY);
+        label("Hold Home / assistant to call this Bot. Основной бот follows the account primary.",12,SECONDARY);
+        action("Back",()->handleBack());
     }
     /** Starts the call once the Bot is open and the watch is awake and unlocked; a tap elsewhere cancels it. */
     private void continueAssist(){
@@ -243,7 +296,7 @@ public final class MainActivity extends Activity {
     }
     private static String openBotExtra(Intent intent){String id=intent==null?null:intent.getStringExtra(ReplyAlertService.OPEN_BOT);return id==null||id.length()>512?"":id;}
     @Override protected void onResume(){super.onResume();visible=true;if(!preview)UpdateCheck.maybeCheck(this,()->{if(visible&&(screen.equals("bots")||screen.equals("settings")))render();});for(BotAvatarView face:avatars)face.running(true);if(waveform!=null)waveform.running(true);if(isCall()){main.removeCallbacks(callClock);main.post(callClock);}
-        if(!preview){VoiceService.addListener(voiceListener);EventStream.add(this,live);if(SIGN_OUT_ACTIVE.get()){screen="signout_confirm";render();main.removeCallbacks(signOutObserver);main.post(signOutObserver);return;}if(awaitingMicrophonePermission&&!pendingTalkCurrent())clearPendingTalk();rosterRetries=0;
+        if(!preview){ProxyRuntime.watch(true);HeadsetButtons.reclaim(this);VoiceService.addListener(voiceListener);ProxyRuntime.addListener(proxyListener);EventStream.add(this,live);if(SIGN_OUT_ACTIVE.get()){screen="signout_confirm";render();main.removeCallbacks(signOutObserver);main.post(signOutObserver);return;}if(awaitingMicrophonePermission&&!pendingTalkCurrent())clearPendingTalk();rosterRetries=0;
             // The assistant button during a call just shows the call; after one ends, it starts the next from the Bot page.
             if(pendingAssist&&(VoiceService.snapshot().active||isCall()))pendingAssist=false;
             else if(pendingAssist&&(screen.equals("done")||screen.equals("dropped")||screen.equals("error"))){screen="ready";safeError="";}
@@ -252,7 +305,7 @@ public final class MainActivity extends Activity {
             if(VoiceService.snapshot().active||isCall())renderVoice();else if(screen.equals("done")||screen.equals("dropped")||screen.equals("error"))render();else if(loads)loadAccount();}
     }
     @Override protected void onPause(){cancelRosterRetry();main.removeCallbacks(loadingTick);if(pendingTalkGranted)clearPendingTalk();visible=false;epoch++;historyRequest++;historyLoading=false;polling=false;main.removeCallbacks(pollTick);for(BotAvatarView face:avatars)face.running(false);if(waveform!=null)waveform.running(false);main.removeCallbacks(callClock);
-        if(!preview){VoiceService.removeListener(voiceListener);EventStream.remove(live);}openChat="";main.removeCallbacks(liveChat);main.removeCallbacks(liveRender);super.onPause();}
+        if(!preview){ProxyRuntime.watch(false);VoiceService.removeListener(voiceListener);ProxyRuntime.removeListener(proxyListener);EventStream.remove(live);}openChat="";main.removeCallbacks(liveChat);main.removeCallbacks(liveRender);super.onPause();}
     @Override protected void onStop(){if(!awaitingMicrophonePermission)clearPendingTalk();super.onStop();}
     @Override protected void onDestroy(){if(android.os.Build.VERSION.SDK_INT>=33&&modernBack!=null)getOnBackInvokedDispatcher().unregisterOnBackInvokedCallback(modernBack);previewEpoch++;worker.shutdownNow();preferencesWorker.shutdownNow();rosterWorker.shutdownNow();main.removeCallbacksAndMessages(null);super.onDestroy();}
     // API30–32 fallback; API33+ uses the platform gesture dispatcher above.
@@ -267,6 +320,8 @@ public final class MainActivity extends Activity {
         if(screen.equals("button_setup")){finishButtonSetup(false);return;}
         if(screen.equals("report")){screen=reportReturnScreen;render();return;}
         if(screen.equals("bot_details")){screen="bots";render();return;}
+        if(screen.equals("proxy")){screen=proxyReturnScreen.equals("ready")?"ready":proxyReturnScreen.equals("welcome")?"welcome":proxyReturnScreen.equals("bots")?"bots":proxyReturnScreen.equals("account_error")?"account_error":"settings";render();return;}
+        if(screen.equals("home_picker")){screen="settings";render();return;}
         if(screen.equals("settings")){leaveSettings();return;}
         if(screen.equals("update")){screen=updateReturnScreen;render();return;}
         if(screen.equals("history_detail")){screen="history";render();return;}
@@ -283,9 +338,10 @@ public final class MainActivity extends Activity {
     }
     public void setPreviewScreen(String value){if(!preview||!BuildConfig.DEBUG)return;
         previewEpoch++;simulated=false;previewSaving=false;caption="";speaker="";safeError="";
-        screen=value==null?"welcome":value;if(screen.equals("settings")||screen.equals("signout_confirm"))settingsReturnScreen="bots";previewElapsedMs=screen.equals("last_minute")?240000:42000;if(screen.equals("last_minute"))screen="listening";if(screen.equals("done_saving")){previewSaving=true;screen="done";}if(screen.equals("completed"))screen="done";if(screen.equals("chats"))screen="recent";previewMuted=screen.equals("muted");
+        screen=value==null?"welcome":value;if(screen.equals("settings")||screen.equals("signout_confirm")||screen.equals("home_picker"))settingsReturnScreen="bots";if(screen.equals("proxy")||screen.equals("proxy_servers")){screen="proxy";proxyReturnScreen="settings";}previewElapsedMs=screen.equals("last_minute")?240000:42000;if(screen.equals("last_minute"))screen="listening";if(screen.equals("done_saving")){previewSaving=true;screen="done";}if(screen.equals("completed"))screen="done";if(screen.equals("chats"))screen="recent";previewMuted=screen.equals("muted");
         if(screen.equals("speaking")){speaker=botName;caption="Your next meeting is at ten. You have time for a short walk.";}
         if(screen.equals("thinking")){speaker="You";caption="What is next on my calendar?";}
+        if(screen.equals("home_picker")){previewPins("home_pinned");screen="home_picker";}
         if(screen.equals("home_primary")){try{bots=new JSONArray().put(new JSONObject().put("id","preview-primary").put("name","Main Bot").put("lastMessagePreview","Ready when you are"));botPreferences=new JSONObject().put("mainAgentId","preview-primary");}catch(Exception ignored){}screen="bots";}else if(screen.equals("bots")){botPreferences=new JSONObject();}
         if(java.util.Set.of("home_pinned","home_overflow","bot_actions","pin_error","pins_full","bot_pinned").contains(screen))previewPins(screen);
         if(screen.equals("compose_review")){draftMessage=previewMedia?previewDraft("Travel Bot"):"Use three sentences to introduce yourself";botName=previewMedia?"Travel Bot":"Wear test";}
@@ -349,6 +405,8 @@ public final class MainActivity extends Activity {
             case "account_error":accountError();break;
             case "access_link":accessLink();break;
             case "settings":settings();break;
+            case "home_picker":homePicker();break;
+            case "proxy":proxy();break;
             case "update":update();break;
             case "alerts_setup":alertsSetup();break;
             case "button_setup":buttonSetup();break;
@@ -375,7 +433,11 @@ public final class MainActivity extends Activity {
         TextView welcomeTitle=label("Grok Wear",large?14:16,WHITE);welcomeTitle.setTypeface(Typeface.create(Typeface.DEFAULT,600,false),Typeface.NORMAL);gap(4);
         label("Talk to your Bots.",12,SECONDARY);gap(4);
         Button connect=action("Sign in",()->beginLogin());((LinearLayout.LayoutParams)connect.getLayoutParams()).topMargin=0;connect.setTextColor(Color.BLACK);connect.setBackground(shape(WHITE,24));
-        label(preview?"Simulated · no microphone":"Your own Grok account",12,SECONDARY);gap(12);label("Unofficial Grok client",12,SECONDARY);
+        action("Прокси",()->openProxyFrom("welcome"));
+        ProxyRuntime.Snapshot vpn=preview?new ProxyRuntime.Snapshot("on","","127.0.0.1:7890","",true,false,true):ProxyRuntime.snapshot();
+        label(preview?"Simulated · no microphone":vpn.line(),12,vpn.connected?GREEN:ORANGE);gap(4);
+        if(!preview&&!vpn.connected)action("Открыть Watch VPN",this::openWatchVpn);
+        gap(8);label("Unofficial Grok client",12,SECONDARY);
     }
     private void qr(){TextView context=label(preview?"Demo QR":"Connect Grok",13,WHITE);context.setTypeface(Typeface.create(Typeface.DEFAULT,600,false),Typeface.NORMAL);gap(3);
         ImageView qr=new ImageView(this);qr.setContentDescription(preview?"Demo QR code":"Grok sign-in QR code");
@@ -448,6 +510,7 @@ public final class MainActivity extends Activity {
             if(botsCached&&botsLoading){Button busy=action("Refreshing…",()->{});busy.setEnabled(false);}else action(botsCached?"Refresh":"Try again",()->loadBots());
             if(botsCached&&!botsLoading&&botsFetchedAtMs>0&&botListError.isEmpty())label("Updated "+ago(botsFetchedAtMs),11,SECONDARY);}
         if(!preview&&!botListError.isEmpty()){action("Report a problem",()->openReport("Bot list: "+botListError,"bots"));action("Details",()->{screen="bot_details";render();});}
+        if(!preview&&!AppProxy.ready()){label(AppProxy.OFF,12,ORANGE);action("Открыть Watch VPN",this::openWatchVpn);action("Прокси",()->openProxyFrom("bots"));}
         action("Settings",()->openSettings());
     }
     private void openUpdate(String from){updateReturnScreen=from;screen="update";render();}
@@ -567,6 +630,7 @@ public final class MainActivity extends Activity {
         TextView title=label(name,15,WHITE);title.setTypeface(Typeface.create(Typeface.DEFAULT,500,false));title.setSingleLine(true);title.setEllipsize(android.text.TextUtils.TruncateAt.END);gap(2);
         View[] pin=pinViews(bot,true);if(pin[0]!=null)body.addView(pin[0],new LinearLayout.LayoutParams(-1,-2));
         LinearLayout.LayoutParams pp=new LinearLayout.LayoutParams(-1,dp(48));pp.topMargin=dp(6);body.addView(pin[1],pp);
+        homeAssignAction(bot);
         Button talk=action("Talk",()->{actionsBot=null;screen="bots";primaryAction(bot,true);});styleTalk(talk);talk.setTextColor(Color.BLACK);talk.setBackground(shape(WHITE,24));talk.setContentDescription("Talk to "+name);
         action("Open chat",()->{actionsBot=null;screen="bots";primaryAction(bot,false);});
     }
@@ -724,7 +788,9 @@ public final class MainActivity extends Activity {
             FrameLayout.LayoutParams sp2=new FrameLayout.LayoutParams(dp(side*.76f),-2,Gravity.TOP|Gravity.CENTER_HORIZONTAL);sp2.topMargin=np.topMargin+dp(22);hero.addView(stack,sp2);}
         else{String last="";if(historyEntries.length()>0){JSONObject entry=historyEntries.optJSONObject(historyEntries.length()-1);if(entry!=null)last=entry.optString("text");}if(last.isEmpty())last=selectedMetadata.optString("lastMessagePreview","");
             TextView excerpt=text(last.isEmpty()?(preview?"Ready when you are":"Ready to talk"):MessageText.plain(last),compactHero()?11:12,SECONDARY);excerpt.setTag("bot_excerpt");excerpt.setSingleLine(true);excerpt.setEllipsize(android.text.TextUtils.TruncateAt.END);FrameLayout.LayoutParams xp=new FrameLayout.LayoutParams(dp(side*.76f),dp(20),Gravity.TOP|Gravity.CENTER_HORIZONTAL);xp.topMargin=dp(Math.min(side-88,side*.615f-10));hero.addView(excerpt,xp);}
-        LinearLayout chat=new LinearLayout(this);chat.setOrientation(LinearLayout.VERTICAL);chat.setPadding(dp(side*.12f),dp(10),dp(side*.12f),0);body.addView(chat,new LinearLayout.LayoutParams(-1,-2));body=chat;label("Chat",17,WHITE);messageButton();if(historyLoading&&historyEntries.length()==0)label("Loading history…",12,SECONDARY);if(historyStale)label("Showing last loaded messages",12,SECONDARY);if(!historyError.isEmpty())label(historyError,12,SECONDARY);
+        LinearLayout chat=new LinearLayout(this);chat.setOrientation(LinearLayout.VERTICAL);chat.setPadding(dp(side*.12f),dp(10),dp(side*.12f),0);body.addView(chat,new LinearLayout.LayoutParams(-1,-2));body=chat;label("Chat",17,WHITE);messageButton();
+        JSONObject homeBot=pinBot!=null?pinBot:selectedMetadata;if(homeBot!=null&&!homeBot.optString("id","").isEmpty())homeAssignAction(homeBot);
+        if(historyLoading&&historyEntries.length()==0)label("Loading history…",12,SECONDARY);if(historyStale)label("Showing last loaded messages",12,SECONDARY);if(!historyError.isEmpty())label(historyError,12,SECONDARY);
         if(historyEntries.length()==0&&!historyLoading)label("No messages loaded",12,SECONDARY);
         chat.setTag("chat");boolean newest=newestFirst();int count=historyEntries.length();
         // Grok's usage-limit notice takes the delivery line of the message it answers, else sits at the chat's newest end.
@@ -772,6 +838,19 @@ public final class MainActivity extends Activity {
     }
     @Override protected void onActivityResult(int request,int result,android.content.Intent data){
         super.onActivityResult(request,result,data);
+        if(request==PROXY_HOST_INPUT||request==PROXY_PORT_INPUT){
+            if(result==RESULT_OK&&data!=null){
+                Bundle values=android.app.RemoteInput.getResultsFromIntent(data);
+                if(request==PROXY_HOST_INPUT){
+                    CharSequence text=values==null?null:values.getCharSequence("proxy_host");
+                    if(text!=null&&!text.toString().trim().isEmpty())ProxyRuntime.setEndpoint(text.toString().trim(),AppProxy.port());
+                }else{
+                    CharSequence text=values==null?null:values.getCharSequence("proxy_port");
+                    if(text!=null&&!text.toString().trim().isEmpty())ProxyRuntime.setEndpoint(AppProxy.host(),AppProxy.parsePort(text.toString()));
+                }
+            }
+            screen="proxy";render();return;
+        }
         if(request!=MESSAGE_INPUT||result!=RESULT_OK||data==null)return;
         Bundle values=android.app.RemoteInput.getResultsFromIntent(data);CharSequence text=values==null?null:values.getCharSequence("message");
         if(text==null||text.toString().trim().isEmpty())return;
@@ -1567,8 +1646,14 @@ public final class MainActivity extends Activity {
         if(on&&!AssistantRole.held(this))try{startActivity(AssistantRole.settings(this));return;}catch(RuntimeException unavailable){}
         loadAccount();
     }
-    /** Whom the button calls: the main Bot, or with none, the Bot open on the watch (assist). */
+    /** Whom the button calls: the Home-button Bot, the main Bot, or with none, the Bot open on the watch. */
     private String assistTarget(JSONObject primary){
+        HomeButton.Choice choice=homeChoice();
+        if(!choice.followsPrimary()){
+            JSONObject found=HomeButton.find(bots,choice.id);
+            if(found!=null)return found.optString("name","your Bot");
+            if(!choice.name.isEmpty())return choice.name;
+        }
         if(primary!=null)return primary.optString("name","your main Bot");
         return !preview&&preferencesKnown?"the Bot you last opened, as you have no main Bot":"your main Bot";
     }
@@ -1684,7 +1769,12 @@ public final class MainActivity extends Activity {
     }
     private void openSettings(){settingsReturnScreen=screen.equals("ready")||screen.equals("done")?"ready":"bots";screen="settings";render();}
     private void leaveSettings(){screen=settingsReturnScreen.equals("ready")?"ready":"bots";render();}
-    private void settings(){title("Settings");boolean alerts=replyAlerts();
+    private void settings(){title("Settings");
+        ProxyRuntime.Snapshot vpn=preview?new ProxyRuntime.Snapshot("on","","127.0.0.1:7890","",true,false,true):ProxyRuntime.snapshot();
+        Button vpnButton=action(vpn.line(),()->openProxyFrom("settings"));
+        vpnButton.setContentDescription(vpn.line());
+        label("Весь трафик Grok идёт через Watch VPN (HTTP CONNECT). Прямых соединений нет.",12,SECONDARY);gap(8);
+        boolean alerts=replyAlerts();
         Button toggle=action("Reply alerts: "+(alerts?"On":"Off"),()->toggleReplyAlerts());toggle.setContentDescription("Reply alerts, "+(alerts?"on":"off")+". Double-tap to turn "+(alerts?"off":"on"));
         label(alertsBlocked?"Allow notifications for Grok Wear in your watch’s settings, then try again.":"Buzz when a Bot answers your message.",12,SECONDARY);gap(8);
         boolean newest=newestFirst();
@@ -1700,10 +1790,72 @@ public final class MainActivity extends Activity {
         Button hold=action("Assistant button: "+(button?"On":"Off"),()->toggleButton());hold.setContentDescription("Assistant button, "+(button?"on":"off")+". Double-tap to open the watch’s assistant settings");
         String target=assistTarget(preview?null:primaryBot());
         label(button?"Hold the watch’s assistant button to call "+target+". To turn this off, choose another assistant.":"Hold the watch’s assistant button to call "+target+" (the Home key on a Galaxy Watch, the crown on a Pixel Watch). No extra battery.",12,SECONDARY);gap(8);
+        String homeName=HomeButton.label(homeChoice(),bots);
+        Button home=action(HomeButton.ROW+": "+homeName,()->{screen="home_picker";render();});
+        home.setContentDescription(HomeButton.ROW+", "+homeName);
+        label("Кого вызывает кнопка Home.",12,SECONDARY);gap(8);
+        boolean headset=preview?previewHeadset:HeadsetButtons.enabled(this);
+        Button buds=action(HeadsetButtons.ROW+": "+(headset?HeadsetButtons.ON:HeadsetButtons.OFF),()->{
+            if(preview){previewHeadset=!previewHeadset;render();return;}
+            HeadsetButtons.setEnabled(this,!headset);render();
+        });
+        buds.setContentDescription(HeadsetButtons.ROW+", "+(headset?"on":"off")+". Double-tap to turn "+(headset?"off":"on"));
+        label(HeadsetButtons.HINT,12,SECONDARY);gap(8);
+        boolean hangUp=preview?previewHeadsetHangUp:HeadsetButtons.endCallOnPress(this);
+        Button during=action(HeadsetButtons.CALL_ROW+": "+HeadsetButtons.callActionLabel(hangUp),()->{
+            if(preview){previewHeadsetHangUp=!previewHeadsetHangUp;render();return;}
+            HeadsetButtons.setEndCallOnPress(this,!hangUp);render();
+        });
+        during.setContentDescription(HeadsetButtons.CALL_ROW+", "+HeadsetButtons.callActionLabel(hangUp));
+        label("Кнопка наушников во время звонка Grok. По умолчанию завершает звонок.",12,SECONDARY);gap(8);
         action("Report a problem",()->openReport("","settings"));gap(8);
         label("Unofficial Grok client",12,SECONDARY);label("Not affiliated with or endorsed by xAI or Cursor.",12,SECONDARY);gap(4);label("5-minute calls · tasks go to your Bot",12,SECONDARY);label("Calls share this Bot’s main chat.",12,SECONDARY);
         action("Back",()->leaveSettings());gap(24);
         action("Sign out…",()->{screen="signout_confirm";render();});
+    }
+    private void openProxyFrom(String from){proxyReturnScreen=from==null||from.isEmpty()?"settings":from;screen="proxy";render();}
+    private void proxy(){
+        ProxyRuntime.Snapshot vpn=preview?new ProxyRuntime.Snapshot("on","","127.0.0.1:7890","HTTP 200 · 12 мс",true,false,true):ProxyRuntime.snapshot();
+        title("Прокси");
+        label(vpn.line(),14,vpn.connected?GREEN:ORANGE);
+        if(!vpn.connected)label(AppProxy.OFF,12,ORANGE);
+        if(!vpn.check.isEmpty())label(vpn.check,12,SECONDARY);
+        gap(8);
+        action("Открыть Watch VPN",this::openWatchVpn);
+        if(vpn.busy){Button busy=action("Проверка…",()->{});busy.setEnabled(false);}
+        else action("Проверить",()->{if(preview)return;ProxyRuntime.check();});
+        action("Адрес: "+(preview?"127.0.0.1":AppProxy.host()),()->editProxyHost());
+        action("Порт: "+(preview?"7890":String.valueOf(AppProxy.port())),()->editProxyPort());
+        gap(8);
+        label("Весь трафик Grok (вход, API, голос) идёт через HTTP CONNECT. Прямых соединений нет.",12,SECONDARY);
+        label("Сначала Watch VPN → Подключить, затем Grok Wear.",12,SECONDARY);
+        label("Unofficial Grok client. Not affiliated with xAI or Cursor.",12,SECONDARY);
+        action("Back",()->handleBack());
+    }
+    private void openWatchVpn(){
+        if(preview)return;
+        if(!ProxyRuntime.launchWatchVpn(this)){
+            safeError="Watch VPN не установлена. Поставьте Watch VPN 0.3.1, затем Подключить.";
+            screen="proxy";render();
+        }
+    }
+    private void editProxyHost(){
+        if(preview)return;
+        try{
+            android.content.Intent input=androidx.wear.input.RemoteInputIntentHelper.createActionRemoteInputIntent();
+            android.app.RemoteInput field=new android.app.RemoteInput.Builder("proxy_host").setLabel("127.0.0.1").build();
+            androidx.wear.input.RemoteInputIntentHelper.putRemoteInputsExtra(input,java.util.Collections.singletonList(field));
+            startActivityForResult(input,PROXY_HOST_INPUT);
+        }catch(RuntimeException unavailable){safeError="Watch keyboard unavailable.";screen="proxy";render();}
+    }
+    private void editProxyPort(){
+        if(preview)return;
+        try{
+            android.content.Intent input=androidx.wear.input.RemoteInputIntentHelper.createActionRemoteInputIntent();
+            android.app.RemoteInput field=new android.app.RemoteInput.Builder("proxy_port").setLabel("7890").build();
+            androidx.wear.input.RemoteInputIntentHelper.putRemoteInputsExtra(input,java.util.Collections.singletonList(field));
+            startActivityForResult(input,PROXY_PORT_INPUT);
+        }catch(RuntimeException unavailable){safeError="Watch keyboard unavailable.";screen="proxy";render();}
     }
     private void confirmSignOut(){
         if(!preview&&SIGN_OUT_ACTIVE.get()){title("Signing out…");label("Removing this watch’s sign-in and local Grok data.",13,SECONDARY);return;}
@@ -1730,7 +1882,11 @@ public final class MainActivity extends Activity {
         else action("Back",()->goHome());}
     private void task(){label("Async tasks · Subagent",12,SECONDARY);title("Needs attention");label(preview?"Demo task · a calendar change needs review":"Tasks aren’t available on this watch yet.",14,SECONDARY);
         if(preview)action("Review request",()->setPreviewScreen("approval"));action("Chats",()->{screen="recent";render();});action("Back",()->goHome());}
-    private void talk(){if(botSelectionPending)return;if(historyStaging()){render();return;}if(!preview&&VoiceService.snapshot().active){renderVoice();return;}transcript.clear();transcriptLast="";micTicked=false;if(preview){demo();return;}
+    private void talk(){if(botSelectionPending)return;if(historyStaging()){render();return;}        if(!preview&&VoiceService.snapshot().active){renderVoice();return;}transcript.clear();transcriptLast="";micTicked=false;if(preview){demo();return;}
+        whenProxyReady(this::talkConnected,screen.equals("bots")?"bots":"ready");}
+    private void talkConnected(){
+        if(botSelectionPending||historyStaging()){render();return;}
+        if(VoiceService.snapshot().active){renderVoice();return;}
         if(checkSelfPermission(Manifest.permission.RECORD_AUDIO)!=PackageManager.PERMISSION_GRANTED){
             clearPendingTalk();pendingTalkIdentity=currentConversationIdentity();pendingTalkAt=android.os.SystemClock.elapsedRealtime();pendingTalkNavigation=navigation;awaitingMicrophonePermission=true;
             requestPermissions(new String[]{Manifest.permission.RECORD_AUDIO},17);return;
@@ -1738,6 +1894,26 @@ public final class MainActivity extends Activity {
         // No network: say so now, instead of a long "Loading chat" that can only fail.
         if(!VoiceService.online(this)){clearPendingTalk();safeError="";screen="offline";render();return;}
         clearPendingTalk();final String callIdentity=currentConversationIdentity();if(!VoiceService.start(this)){safeError="Tap Talk while your watch is unlocked.";screen="ready";render();}else{receiptIdentity=callIdentity;receiptElapsed=0;receiptSync="";receiptRefreshPending=true;historyRequest++;historyLoading=false;renderVoice();}}
+    /** Probe Watch VPN off the UI thread, then continue. Fail-closed: closed → proxy screen. */
+    private void whenProxyReady(Runnable next,String from){
+        int mine=epoch,route=navigation;
+        worker.execute(()->{
+            try{
+                AppProxy.require();
+                main.post(()->{
+                    if(!visible||mine!=epoch||route!=navigation)return;
+                    if(VoiceService.snapshot().active){renderVoice();return;}
+                    next.run();
+                });
+            }catch(Exception failed){
+                main.post(()->{
+                    if(!visible||mine!=epoch||route!=navigation)return;
+                    if(AppProxy.isClosed(failed))openProxyFrom(from);
+                    else showSafeError(failed);
+                });
+            }
+        });
+    }
     private void clearPendingTalk(){main.removeCallbacks(finishGrantedTalk);pendingTalkIdentity="";pendingTalkAt=0;pendingTalkGrantedAt=0;awaitingMicrophonePermission=false;pendingTalkGranted=false;}
     private boolean pendingTalkCurrent(){return !pendingTalkIdentity.isEmpty()&&pendingTalkIdentity.equals(currentConversationIdentity())&&pendingTalkNavigation==navigation&&android.os.SystemClock.elapsedRealtime()-pendingTalkAt<=60000&&(screen.equals("ready")||screen.equals("bots"));}
     private void resumeGrantedTalk(){
@@ -1777,6 +1953,10 @@ public final class MainActivity extends Activity {
             return;
         }
         title("Needs attention");label(safeError,14,SECONDARY);gap(9);
+        if(AppProxy.OFF.equals(safeError)||AppProxy.BROKEN.equals(safeError)||(safeError!=null&&safeError.contains("Прокси не запущен"))){
+            action("Открыть Watch VPN",this::openWatchVpn);
+            action("Прокси",()->openProxyFrom("account_error"));
+        }
         if(!accountLink.isEmpty())action("Open on phone",()->{screen="access_link";render();});
         if(!preview)action("Sign in again",()->signInAgain());
         String detail=safeError;action("Report a problem",()->openReport("Needs attention: "+detail,"account_error"));
@@ -1831,7 +2011,7 @@ public final class MainActivity extends Activity {
     private void showSafeError(Throwable failure){polling=false;main.removeCallbacks(pollTick);main.removeCallbacks(offlineRetry);
         GrokCore.Failure refused=failure instanceof GrokCore.Failure?(GrokCore.Failure)failure:null;
         accountLink=refused==null?"":refused.link;
-        safeError=refused!=null&&refused.getMessage()!=null&&!refused.getMessage().isEmpty()?refused.getMessage()
+        safeError=AppProxy.isClosed(failure)?AppProxy.OFF:refused!=null&&refused.getMessage()!=null&&!refused.getMessage().isEmpty()?refused.getMessage()
             :"Couldn’t reach Grok. Check the watch’s connection, then try again.";
         // Out of reach (the watch offline, or its network switching): try again by itself, further apart each time.
         accountOffline=failure!=null&&(refused==null||GrokAuthCore.OFFLINE.equals(refused.code));
@@ -1910,6 +2090,7 @@ public final class MainActivity extends Activity {
         if(!botsCached||hadError||explicit)renderBotListPreservingScroll();
         final int request=++botRequest;activeRosterRequest=request;final String expected=botsAccountBinding;
         rosterWorker.execute(()->{try{
+            AppProxy.require();
             if(!expected.equals(accountIdentity(account.authState())))throw new IllegalStateException();
             JSONArray found=account.bots();JSONObject saved=account.cachedRoster();
             long took=android.os.SystemClock.elapsedRealtime()-elapsed;
@@ -1931,6 +2112,7 @@ public final class MainActivity extends Activity {
         }catch(Exception failure){ProblemReport.note(getApplicationContext(),"Bot list",failure,"after "+ProblemReport.seconds(android.os.SystemClock.elapsedRealtime()-elapsed)+" · "+ProblemReport.network(getApplicationContext()));String why=ProblemReport.offline(failure)?"offline":ProblemReport.code(failure);
             GrokCore.Failure refused=failure instanceof GrokCore.Failure?(GrokCore.Failure)failure:null;
             main.post(()->{if(activeRosterRequest==request)rosterFetchActive=false;
+                if(AppProxy.isClosed(failure)){if(currentBotRefresh(request,expected)){botsLoading=false;botListError=AppProxy.OFF;renderBotListPreservingScroll();}return;}
                 // A dropped stale team changed the account binding: load the account again under the new one.
                 if(refused!=null&&BotAccount.TEAM_CHANGED.equals(refused.code)){if(visible&&!VoiceService.snapshot().active)loadAccount();return;}
                 // Grok explained why this account can't use Bots: say so, with where to fix it.
@@ -1980,7 +2162,11 @@ public final class MainActivity extends Activity {
         }catch(Exception ignored){main.post(()->{botSelectionPending=false;if(!visible||mine!=epoch)return;
             if(VoiceService.snapshot().active){renderVoice();return;}botListError="Couldn’t switch Bots. Try again.";render();});}});
     }
-    private void beginLogin(){if(preview){setPreviewScreen("qr");return;}GrokAuthCore.releaseHold();clearBotCache();epoch++;polling=false;main.removeCallbacks(pollTick);task(()->account.beginLogin(),value->{loginAttempt=value.optString("login_attempt","");screen="qr";render();schedulePoll();});}
+    private void beginLogin(){if(preview){setPreviewScreen("qr");return;}whenProxyReady(this::beginLoginConnected,"welcome");}
+    private void beginLoginConnected(){
+        GrokAuthCore.releaseHold();clearBotCache();epoch++;polling=false;main.removeCallbacks(pollTick);
+        task(()->account.beginLogin(),value->{loginAttempt=value.optString("login_attempt","");screen="qr";render();schedulePoll();});
+    }
     private void cancelLogin(){if(preview){setPreviewScreen("welcome");return;}final String attempt=loginAttempt;if(attempt.isEmpty())return;epoch++;polling=false;main.removeCallbacks(pollTick);task(()->{account.cancelLogin(attempt);return new JSONObject();},value->{screen="welcome";render();});}
     private void schedulePoll(){if(!visible||preview||!screen.equals("qr"))return;polling=true;main.removeCallbacks(pollTick);main.postDelayed(pollTick,3000);}
     private void pollLogin(){if(preview||!visible||!polling||!screen.equals("qr"))return;task(()->account.pollLogin(),value->{if("waiting".equals(value.optString("status")))schedulePoll();else{polling=false;if("ready".equals(value.optString("status"))){setAlertsSetupPending(true);AssistantRole.setSetupPending(this,true);}loadAccount();}});}

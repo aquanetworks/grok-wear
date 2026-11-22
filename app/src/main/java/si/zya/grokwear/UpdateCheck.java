@@ -85,7 +85,7 @@ final class UpdateCheck {
     /** The latest release's version, "" when GitHub has none, or null when it couldn't be read. */
     private static String fetch()throws Exception {
         synchronized(UpdateCheck.class){
-            if(client==null)client=new OkHttpClient.Builder().connectTimeout(10,TimeUnit.SECONDS).readTimeout(10,TimeUnit.SECONDS)
+            if(client==null)client=HttpClients.tunneled().connectTimeout(10,TimeUnit.SECONDS).readTimeout(10,TimeUnit.SECONDS)
                 .callTimeout(20,TimeUnit.SECONDS).build();
         }
         Request request=new Request.Builder().url(API).get().header("Accept","application/vnd.github+json")
