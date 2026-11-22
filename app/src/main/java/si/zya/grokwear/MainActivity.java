@@ -50,7 +50,7 @@ public final class MainActivity extends Activity {
     private final Runnable offlineRetry=this::retryOffline;
     private void retryOffline(){if(visible&&accountOffline&&screen.equals("account_error"))recover();}
     private Runnable rosterRetry;
-    private String settingsReturnScreen="bots",proxyReturnScreen="welcome";
+    private String settingsReturnScreen="bots",proxyReturnScreen="welcome",previewHomeId="",previewHomeName="";
     private static final int PROXY_HOST_INPUT=33,PROXY_PORT_INPUT=34;
     private static final java.util.concurrent.atomic.AtomicBoolean SIGN_OUT_ACTIVE=new java.util.concurrent.atomic.AtomicBoolean();
     private static volatile boolean signOutFailed;
@@ -115,7 +115,7 @@ public final class MainActivity extends Activity {
     private boolean alertsBlocked,previewAlerts=true;
     private static final int NOTIFICATIONS=18;
     // The assistant button: a call with the main Bot once the account has loaded, and its Settings switch.
-    private boolean pendingAssist,previewButton;private int assistNavigation;private long assistUntil;
+    private boolean pendingAssist,previewButton,previewHeadset;private int assistNavigation;private long assistUntil;
     // pickToCall: the assistant button with no main or open Bot, so the next Bot tapped is called.
     // preferencesKnown: the account's main Bot and pins arrived, so "no main Bot" is a fact, not a gap.
     private boolean pickToCall,preferencesKnown;private long rosterStartedElapsed;private TextView loadingLine;private String reportReturnScreen="settings",reportWhere="",accountLink="",authSummary="",logId="",logUploadNote="";private boolean sendLogs,logUploading;private boolean reportByEmail=true;
@@ -215,23 +215,74 @@ public final class MainActivity extends Activity {
         else if(preview){previewMedia=intent.getBooleanExtra("preview_media",false);setPreviewScreen(intent.getStringExtra("preview_screen"));}
         else{pendingOpenBot=openBotExtra(intent);noteAssist(intent);} // onResume's account load opens it.
     }
-    /** The assistant button, through GrokAssistantSessionService: a call with the main Bot after the account loads. */
+    /** Home, headset VOICE_COMMAND, hands-free search, or the assistant gesture: a call after the account loads. */
     private void noteAssist(Intent intent){
         String action=intent==null?null:intent.getAction();
-        if(!Intent.ACTION_ASSIST.equals(action)&&!"android.intent.action.VOICE_ASSIST".equals(action))return;
+        if(!AssistLaunch.isAssistAction(action))return;
+        AssistLaunch.wakeForAssist(this,intent);
+        AssistLaunch.note(intent,"activity");
         pendingAssist=true;pendingOpenBot="";
     }
-    /** The assistant button: talk to the main Bot, switching to it first when another Bot is open. */
+    /** The assistant / headset button: talk to the Home-button Bot (or the account primary), switching to it first when another Bot is open. */
     private void assist(JSONObject current){
         if(VoiceService.snapshot().active||isCall()){renderVoice();return;}
-        JSONObject primary=primaryBot();String id=primary!=null?primary.optString("id",""):current.optString("id","");
+        JSONObject target=assistBot(current);String id=target==null?"":target.optString("id","");
+        AssistLaunch.log("call bot="+(id.isEmpty()?"picker":id)+" source=assist");
         if(id.isEmpty()){openBotPicker();pickToCall=true;render();return;}
         // Debug builds: emulator tests check the launch without calling a real Bot.
         if(BuildConfig.DEBUG&&getSharedPreferences("grokwear_ui",MODE_PRIVATE).getBoolean("assist_dry_run",false)){
-            android.util.Log.i("GrokWearAssist","assist_dry_run main="+(primary!=null)+" switch="+!id.equals(current.optString("id","")));
+            android.util.Log.i("GrokWearAssist","assist_dry_run home="+id+" switch="+!id.equals(current.optString("id","")));
             screen="ready";render();return;}
         if(!id.equals(current.optString("id",""))){screen="bots";render();chooseBot(id,false);}else{screen="ready";render();loadBotChat();}
         assistNavigation=navigation;assistUntil=android.os.SystemClock.elapsedRealtime()+30000;main.removeCallbacks(assistTalk);main.post(assistTalk);
+    }
+    /** Chosen Home bot if it is still in the roster; else primary; else the Bot already open; else picker. */
+    private JSONObject assistBot(JSONObject current){
+        HomeButton.Resolved resolved=HomeButton.resolve(homeChoice(),bots,primaryBot());
+        if(resolved.stale)clearHomeBot(false);
+        if(resolved.bot!=null)return resolved.bot;
+        if(current!=null&&!current.optString("id","").isEmpty())return current;
+        return null;
+    }
+    private HomeButton.Choice homeChoice(){
+        if(preview)return new HomeButton.Choice(previewHomeId,previewHomeName);
+        return HomeButton.load(this);
+    }
+    private void clearHomeBot(boolean renderAfter){
+        if(preview){previewHomeId="";previewHomeName="";}else HomeButton.clear(this);
+        if(renderAfter&&visible)render();
+    }
+    private void setHomeBot(JSONObject bot){
+        String id=bot==null?"":bot.optString("id",""),name=bot==null?"":bot.optString("name","");
+        if(id.isEmpty()){clearHomeBot(false);}
+        else if(preview){previewHomeId=id;previewHomeName=name;}
+        else HomeButton.save(this,id,name);
+        if(root!=null)root.performHapticFeedback(android.view.HapticFeedbackConstants.CONFIRM);
+        if(screen.equals("bot_actions")){closeBotActions();return;}
+        if(screen.equals("home_picker")){screen="settings";render();return;}
+        render();
+    }
+    private void homeAssignAction(JSONObject bot){
+        if(bot==null||bot.optString("id","").isEmpty())return;
+        boolean here=HomeButton.isChosen(homeChoice(),bot.optString("id"));
+        String label=here?HomeButton.ASSIGNED:HomeButton.ASSIGN;
+        action(label,()->{if(here)return;setHomeBot(bot);});
+    }
+    private void homePicker(){
+        title(HomeButton.ROW);
+        HomeButton.Choice choice=homeChoice();
+        boolean primary=choice.followsPrimary();
+        Button first=action(HomeButton.PRIMARY_OPTION,()->setHomeBot(null));
+        if(primary)first.setTextColor(Color.BLACK);
+        if(primary)first.setBackground(shape(WHITE,24));
+        for(JSONObject bot:HomeButton.picker(bots,pinIds())){
+            String name=bot.optString("name","Unnamed Bot");boolean selected=HomeButton.isChosen(choice,bot.optString("id"));
+            Button row=action(name,()->setHomeBot(bot));
+            if(selected){row.setTextColor(Color.BLACK);row.setBackground(shape(WHITE,24));}
+        }
+        if(!preview&&bots.length()==0)label("No Bots loaded yet.",12,SECONDARY);
+        label("Hold Home / assistant to call this Bot. Основной бот follows the account primary.",12,SECONDARY);
+        action("Back",()->handleBack());
     }
     /** Starts the call once the Bot is open and the watch is awake and unlocked; a tap elsewhere cancels it. */
     private void continueAssist(){
@@ -270,6 +321,7 @@ public final class MainActivity extends Activity {
         if(screen.equals("report")){screen=reportReturnScreen;render();return;}
         if(screen.equals("bot_details")){screen="bots";render();return;}
         if(screen.equals("proxy")){screen=proxyReturnScreen.equals("ready")?"ready":proxyReturnScreen.equals("welcome")?"welcome":proxyReturnScreen.equals("bots")?"bots":proxyReturnScreen.equals("account_error")?"account_error":"settings";render();return;}
+        if(screen.equals("home_picker")){screen="settings";render();return;}
         if(screen.equals("settings")){leaveSettings();return;}
         if(screen.equals("update")){screen=updateReturnScreen;render();return;}
         if(screen.equals("history_detail")){screen="history";render();return;}
@@ -286,9 +338,10 @@ public final class MainActivity extends Activity {
     }
     public void setPreviewScreen(String value){if(!preview||!BuildConfig.DEBUG)return;
         previewEpoch++;simulated=false;previewSaving=false;caption="";speaker="";safeError="";
-        screen=value==null?"welcome":value;if(screen.equals("settings")||screen.equals("signout_confirm"))settingsReturnScreen="bots";if(screen.equals("proxy")||screen.equals("proxy_servers")){screen="proxy";proxyReturnScreen="settings";}previewElapsedMs=screen.equals("last_minute")?240000:42000;if(screen.equals("last_minute"))screen="listening";if(screen.equals("done_saving")){previewSaving=true;screen="done";}if(screen.equals("completed"))screen="done";if(screen.equals("chats"))screen="recent";previewMuted=screen.equals("muted");
+        screen=value==null?"welcome":value;if(screen.equals("settings")||screen.equals("signout_confirm")||screen.equals("home_picker"))settingsReturnScreen="bots";if(screen.equals("proxy")||screen.equals("proxy_servers")){screen="proxy";proxyReturnScreen="settings";}previewElapsedMs=screen.equals("last_minute")?240000:42000;if(screen.equals("last_minute"))screen="listening";if(screen.equals("done_saving")){previewSaving=true;screen="done";}if(screen.equals("completed"))screen="done";if(screen.equals("chats"))screen="recent";previewMuted=screen.equals("muted");
         if(screen.equals("speaking")){speaker=botName;caption="Your next meeting is at ten. You have time for a short walk.";}
         if(screen.equals("thinking")){speaker="You";caption="What is next on my calendar?";}
+        if(screen.equals("home_picker")){previewPins("home_pinned");screen="home_picker";}
         if(screen.equals("home_primary")){try{bots=new JSONArray().put(new JSONObject().put("id","preview-primary").put("name","Main Bot").put("lastMessagePreview","Ready when you are"));botPreferences=new JSONObject().put("mainAgentId","preview-primary");}catch(Exception ignored){}screen="bots";}else if(screen.equals("bots")){botPreferences=new JSONObject();}
         if(java.util.Set.of("home_pinned","home_overflow","bot_actions","pin_error","pins_full","bot_pinned").contains(screen))previewPins(screen);
         if(screen.equals("compose_review")){draftMessage=previewMedia?previewDraft("Travel Bot"):"Use three sentences to introduce yourself";botName=previewMedia?"Travel Bot":"Wear test";}
@@ -352,6 +405,7 @@ public final class MainActivity extends Activity {
             case "account_error":accountError();break;
             case "access_link":accessLink();break;
             case "settings":settings();break;
+            case "home_picker":homePicker();break;
             case "proxy":proxy();break;
             case "update":update();break;
             case "alerts_setup":alertsSetup();break;
@@ -576,6 +630,7 @@ public final class MainActivity extends Activity {
         TextView title=label(name,15,WHITE);title.setTypeface(Typeface.create(Typeface.DEFAULT,500,false));title.setSingleLine(true);title.setEllipsize(android.text.TextUtils.TruncateAt.END);gap(2);
         View[] pin=pinViews(bot,true);if(pin[0]!=null)body.addView(pin[0],new LinearLayout.LayoutParams(-1,-2));
         LinearLayout.LayoutParams pp=new LinearLayout.LayoutParams(-1,dp(48));pp.topMargin=dp(6);body.addView(pin[1],pp);
+        homeAssignAction(bot);
         Button talk=action("Talk",()->{actionsBot=null;screen="bots";primaryAction(bot,true);});styleTalk(talk);talk.setTextColor(Color.BLACK);talk.setBackground(shape(WHITE,24));talk.setContentDescription("Talk to "+name);
         action("Open chat",()->{actionsBot=null;screen="bots";primaryAction(bot,false);});
     }
@@ -733,7 +788,9 @@ public final class MainActivity extends Activity {
             FrameLayout.LayoutParams sp2=new FrameLayout.LayoutParams(dp(side*.76f),-2,Gravity.TOP|Gravity.CENTER_HORIZONTAL);sp2.topMargin=np.topMargin+dp(22);hero.addView(stack,sp2);}
         else{String last="";if(historyEntries.length()>0){JSONObject entry=historyEntries.optJSONObject(historyEntries.length()-1);if(entry!=null)last=entry.optString("text");}if(last.isEmpty())last=selectedMetadata.optString("lastMessagePreview","");
             TextView excerpt=text(last.isEmpty()?(preview?"Ready when you are":"Ready to talk"):MessageText.plain(last),compactHero()?11:12,SECONDARY);excerpt.setTag("bot_excerpt");excerpt.setSingleLine(true);excerpt.setEllipsize(android.text.TextUtils.TruncateAt.END);FrameLayout.LayoutParams xp=new FrameLayout.LayoutParams(dp(side*.76f),dp(20),Gravity.TOP|Gravity.CENTER_HORIZONTAL);xp.topMargin=dp(Math.min(side-88,side*.615f-10));hero.addView(excerpt,xp);}
-        LinearLayout chat=new LinearLayout(this);chat.setOrientation(LinearLayout.VERTICAL);chat.setPadding(dp(side*.12f),dp(10),dp(side*.12f),0);body.addView(chat,new LinearLayout.LayoutParams(-1,-2));body=chat;label("Chat",17,WHITE);messageButton();if(historyLoading&&historyEntries.length()==0)label("Loading history…",12,SECONDARY);if(historyStale)label("Showing last loaded messages",12,SECONDARY);if(!historyError.isEmpty())label(historyError,12,SECONDARY);
+        LinearLayout chat=new LinearLayout(this);chat.setOrientation(LinearLayout.VERTICAL);chat.setPadding(dp(side*.12f),dp(10),dp(side*.12f),0);body.addView(chat,new LinearLayout.LayoutParams(-1,-2));body=chat;label("Chat",17,WHITE);messageButton();
+        JSONObject homeBot=pinBot!=null?pinBot:selectedMetadata;if(homeBot!=null&&!homeBot.optString("id","").isEmpty())homeAssignAction(homeBot);
+        if(historyLoading&&historyEntries.length()==0)label("Loading history…",12,SECONDARY);if(historyStale)label("Showing last loaded messages",12,SECONDARY);if(!historyError.isEmpty())label(historyError,12,SECONDARY);
         if(historyEntries.length()==0&&!historyLoading)label("No messages loaded",12,SECONDARY);
         chat.setTag("chat");boolean newest=newestFirst();int count=historyEntries.length();
         // Grok's usage-limit notice takes the delivery line of the message it answers, else sits at the chat's newest end.
@@ -1589,8 +1646,14 @@ public final class MainActivity extends Activity {
         if(on&&!AssistantRole.held(this))try{startActivity(AssistantRole.settings(this));return;}catch(RuntimeException unavailable){}
         loadAccount();
     }
-    /** Whom the button calls: the main Bot, or with none, the Bot open on the watch (assist). */
+    /** Whom the button calls: the Home-button Bot, the main Bot, or with none, the Bot open on the watch. */
     private String assistTarget(JSONObject primary){
+        HomeButton.Choice choice=homeChoice();
+        if(!choice.followsPrimary()){
+            JSONObject found=HomeButton.find(bots,choice.id);
+            if(found!=null)return found.optString("name","your Bot");
+            if(!choice.name.isEmpty())return choice.name;
+        }
         if(primary!=null)return primary.optString("name","your main Bot");
         return !preview&&preferencesKnown?"the Bot you last opened, as you have no main Bot":"your main Bot";
     }
@@ -1727,6 +1790,17 @@ public final class MainActivity extends Activity {
         Button hold=action("Assistant button: "+(button?"On":"Off"),()->toggleButton());hold.setContentDescription("Assistant button, "+(button?"on":"off")+". Double-tap to open the watch’s assistant settings");
         String target=assistTarget(preview?null:primaryBot());
         label(button?"Hold the watch’s assistant button to call "+target+". To turn this off, choose another assistant.":"Hold the watch’s assistant button to call "+target+" (the Home key on a Galaxy Watch, the crown on a Pixel Watch). No extra battery.",12,SECONDARY);gap(8);
+        String homeName=HomeButton.label(homeChoice(),bots);
+        Button home=action(HomeButton.ROW+": "+homeName,()->{screen="home_picker";render();});
+        home.setContentDescription(HomeButton.ROW+", "+homeName);
+        label("Кого вызывает кнопка Home.",12,SECONDARY);gap(8);
+        boolean headset=preview?previewHeadset:HeadsetButtons.enabled(this);
+        Button buds=action(HeadsetButtons.ROW+": "+(headset?HeadsetButtons.ON:HeadsetButtons.OFF),()->{
+            if(preview){previewHeadset=!previewHeadset;render();return;}
+            HeadsetButtons.setEnabled(this,!headset);render();
+        });
+        buds.setContentDescription(HeadsetButtons.ROW+", "+(headset?"on":"off")+". Double-tap to turn "+(headset?"off":"on"));
+        label(HeadsetButtons.HINT,12,SECONDARY);gap(8);
         action("Report a problem",()->openReport("","settings"));gap(8);
         label("Unofficial Grok client",12,SECONDARY);label("Not affiliated with or endorsed by xAI or Cursor.",12,SECONDARY);gap(4);label("5-minute calls · tasks go to your Bot",12,SECONDARY);label("Calls share this Bot’s main chat.",12,SECONDARY);
         action("Back",()->leaveSettings());gap(24);

@@ -7,5 +7,6 @@ public final class GrokWearApp extends Application {
     @Override public void onCreate(){
         super.onCreate();
         ProxyRuntime.attach(this);
+        HeadsetButtons.sync(this);
     }
 }

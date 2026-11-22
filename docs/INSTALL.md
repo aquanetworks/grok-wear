@@ -1,6 +1,6 @@
 # Install Grok Wear on your watch
 
-This 0.8.2 variant uses Watch VPN (no embedded mihomo). Russian install: **[INSTALL-GROK.md](../INSTALL-GROK.md)**.
+This 0.8.3 variant uses Watch VPN (no embedded mihomo). Russian install: **[INSTALL-GROK.md](../INSTALL-GROK.md)**.
 
 ## TL;DR
 
