@@ -86,12 +86,8 @@ public final class WatchVpnService extends VpnService {
     }
     private int bringUp(){
         VpnRuntime.onServicePhase("connecting","");
-        if(prepare(this)!=null){
-            VpnRuntime.onServicePhase("error",VpnConsent.MISSING_UI);
-            stopForeground(STOP_FOREGROUND_REMOVE);
-            stopSelf();
-            return START_NOT_STICKY;
-        }
+        Intent prepare=VpnConsent.prepareIntent(this);
+        AppLog.line("service bringUp prepare="+(prepare==null?"null":"intent")+" appops="+VpnConsent.appopsAllowed(this));
         new Thread(this::establishAndSpawn,"watchvpn-up").start();
         return START_STICKY;
     }
@@ -122,8 +118,21 @@ public final class WatchVpnService extends VpnService {
                 catch(PackageManager.NameNotFoundException e){throw WatchFail.of("Could not exclude Watch VPN from its own tunnel.");}
                 if(Build.VERSION.SDK_INT>=29)builder.setMetered(false);
                 builder.setBlocking(true);
-                tun=builder.establish();
-                if(tun==null)throw WatchFail.of(VpnConsent.DENIED);
+                AppLog.line("establish() calling");
+                try{
+                    tun=builder.establish();
+                }catch(SecurityException se){
+                    AppLog.line("establish SecurityException "+se.getMessage());
+                    throw WatchFail.of(VpnConsent.establishFailed(this,"SecurityException: "+se.getMessage()));
+                }catch(Exception e){
+                    AppLog.line("establish threw "+e.getClass().getSimpleName()+" "+e.getMessage());
+                    throw WatchFail.of(VpnConsent.establishFailed(this,e.getClass().getSimpleName()+": "+e.getMessage()));
+                }
+                if(tun==null){
+                    AppLog.line("establish returned null");
+                    throw WatchFail.of(VpnConsent.establishFailed(this,"establish() returned null."));
+                }
+                AppLog.line("establish ok");
                 String yaml=store.yaml(true,ipv6Up);
                 int fd=tun.detachFd();
                 tun=null;
@@ -145,11 +154,19 @@ public final class WatchVpnService extends VpnService {
                 MihomoEngine.stop();
                 closeTun();
                 String msg=VpnRuntime.safe(e);
+                AppLog.line("bringUp failed "+msg);
                 VpnRuntime.onServicePhase("error",msg);
                 notify("Error",msg);
-                scheduleReconnect();
+                if(isConsentFailure(e)){
+                    try{Store.get(this).setWantConnected(false);}catch(Exception ignored){}
+                }else scheduleReconnect();
             }
         }
+    }
+    private static boolean isConsentFailure(Exception e){
+        if(e instanceof SecurityException)return true;
+        String m=e.getMessage();
+        return m!=null&&(m.contains("establish()")||m.contains("SecurityException")||m.contains("ACTIVATE_VPN"));
     }
     private void waitReady(String secret)throws Exception{
         MihomoApi api=new MihomoApi(TunConfig.API_PORT,secret);

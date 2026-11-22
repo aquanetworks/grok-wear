@@ -4,7 +4,9 @@
 
 Это **не** Grok Wear. Grok Wear (PR с in-app прокси) остаётся отдельным APK и не маршрутизирует чужие приложения.
 
-**APK:** `watch-vpn-armeabi-v7a.apk` (~76 МБ из‑за mihomo `armeabi-v7a`, `compileSdk`/`targetSdk` 36). Подпись — тот же sideload-ключ, что и Grok Wear, см. [Подпись](#подпись-apk).
+**APK:** `watch-vpn-armeabi-v7a.apk` (версия **0.1.1**, ~76 МБ из‑за mihomo `armeabi-v7a`, `compileSdk`/`targetSdk` 36). Подпись — тот же sideload-ключ, что и Grok Wear, см. [Подпись](#подпись-apk).
+
+После `appops set … ACTIVATE_VPN allow` нажимайте **Подключить** — приложение вызывает `establish()` даже если `prepare()` всё ещё возвращает intent. Если снова ошибка, откройте **Журнал** и сфотографируйте последние строки. Подписку панель может резать по User-Agent: по умолчанию шлётся `v2raytun/android`, при заглушках («приложение не поддерживается») перебираются v2rayNG / Happ / Clash / Shadowrocket. В **Справка / UA** можно выбрать клиент вручную и нажать **Обновить подписку**.
 
 > Боевую ссылку подписки в репозиторий и в чаты не кладите.
 
@@ -48,7 +50,7 @@ adb install -r --no-streaming watch-vpn-armeabi-v7a.apk
 adb shell appops set com.aquanetworks.watchvpn ACTIVATE_VPN allow
 ```
 
-После команды откройте Watch VPN и нажмите **Подключить**. Если `prepare` всё ещё «нужен диалог», перезапустите приложение.
+После команды откройте Watch VPN и нажмите **Подключить**. Приложение вызывает `Builder.establish()` даже если `VpnService.prepare()` возвращает intent. Если TUN не поднялся — **Журнал** (там будет текст исключения).
 
 Всегда включённый VPN (по желанию): **Настройки часов → Подключения → VPN** (путь может отличаться на One UI Watch) → Watch VPN → **Always-on VPN**. Блокировка трафика без VPN — там же, если пункт есть.
 

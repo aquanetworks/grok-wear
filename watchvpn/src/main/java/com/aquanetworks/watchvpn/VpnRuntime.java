@@ -30,7 +30,8 @@ final class VpnRuntime {
         WORK.execute(()->{
             try{
                 Store store=Store.get(app);
-                if(store.wantConnected()&&VpnConsent.prepareReady(app)){
+                if(store.wantConnected()){
+                    AppLog.line("restore wantConnected, starting service");
                     WatchVpnService.start(app);
                 }
                 publishLocked();
@@ -38,19 +39,17 @@ final class VpnRuntime {
         });
     }
     static void addListener(Listener listener){LISTENERS.add(listener);listener.onChange(LAST);}
+    static void refreshUi(){WORK.execute(()->{try{publishLocked();}catch(Exception e){error(safe(e));}});}
     static void removeListener(Listener listener){LISTENERS.remove(listener);}
     static Snapshot snapshot(){return LAST;}
     static void connect(){
         WORK.execute(()->{
             try{
                 Store store=Store.get(APP);
+                AppLog.line("connect tap appops="+VpnConsent.appopsAllowed(APP)+" prepareReady="+VpnConsent.prepareReady(APP)+" nodes="+store.nodes().size());
                 if(store.nodes().isEmpty()){error("Import a subscription first.");return;}
                 store.setWantConnected(true);
                 phase("connecting");
-                if(!VpnConsent.prepareReady(APP)){
-                    error(VpnConsent.appopsAllowed(APP)?VpnConsent.DENIED:VpnConsent.MISSING_UI);
-                    return;
-                }
                 WatchVpnService.start(APP);
             }catch(Exception e){error(safe(e));}
         });
@@ -75,11 +74,15 @@ final class VpnRuntime {
                 if(text.isEmpty()){error("Empty subscription.");return;}
                 String url=ImportLinks.extract(text);
                 if(!url.isEmpty()){
-                    SubscriptionParser.Result parsed=SubscriptionParser.parse(SubClient.fetch(url));
-                    Store.get(APP).importUrl(url,parsed);
-                    PHASE="idle";ERROR=parsed.warning;
+                    AppLog.line("import subscription UA="+Store.get(APP).userAgentId());
+                    SubscriptionImport.Outcome outcome=SubscriptionImport.pull(url,Store.get(APP).userAgentId(),SubClient.HTTP_TRANSPORT);
+                    Store.get(APP).importUrl(url,outcome.parsed,outcome.preset.id,outcome.profileTitle,outcome.userinfo);
+                    PHASE="idle";
+                    ERROR=outcome.placeholdersOnly?outcome.warning:"";
+                    if(!outcome.warning.isEmpty())AppLog.line(outcome.warning);
+                    AppLog.line("import nodes="+outcome.parsed.nodes.size()+" real="+Placeholders.realCount(outcome.parsed.nodes)+" ua="+outcome.preset.id);
                     publishLocked();
-                    if(Store.get(APP).wantConnected()&&VpnConsent.prepareReady(APP))WatchVpnService.reload(APP);
+                    if(Store.get(APP).wantConnected())WatchVpnService.reload(APP);
                     return;
                 }
                 SubscriptionParser.Result parsed=SubscriptionParser.parse(text);
@@ -114,9 +117,21 @@ final class VpnRuntime {
         WORK.execute(()->{
             try{
                 Store.get(APP).select(name);
+                AppLog.line("selected "+name);
                 if(MihomoEngine.alive()){
                     new MihomoApi(TunConfig.API_PORT,Store.get(APP).secret()).select(TunConfig.GROUP,name);
                 }
+                if("error".equals(PHASE))PHASE="idle";
+                ERROR="";
+                publishLocked();
+            }catch(Exception e){error(safe(e));}
+        });
+    }
+    static void setUserAgent(String id){
+        WORK.execute(()->{
+            try{
+                Store.get(APP).setUserAgentId(id);
+                AppLog.line("UA preset "+id);
                 publishLocked();
             }catch(Exception e){error(safe(e));}
         });
@@ -157,14 +172,16 @@ final class VpnRuntime {
         });
     }
     static void consentDenied(){
-        error(VpnConsent.DENIED);
+        AppLog.line("prepare activity canceled — trying establish()");
+        connect();
     }
     static void consentMissing(){
-        error(VpnConsent.MISSING_UI);
+        AppLog.line("prepare activity missing — trying establish()");
+        connect();
     }
     private static void phase(String phase){PHASE=phase;ERROR="";publishLocked();}
     private static void error(String message){
-        PHASE="error";ERROR=message==null?"":message;publishLocked();
+        PHASE="error";ERROR=message==null?"":message;AppLog.line("error "+ERROR);publishLocked();
     }
     private static void publishLocked(){
         try{
@@ -183,11 +200,14 @@ final class VpnRuntime {
             Snapshot snap=new Snapshot(PHASE,ERROR,selected,ImportLinks.maskUrl(root.optString("subscriptionUrl","")),
                 root.optString("kind",""),VpnConsent.describe(APP),
                 root.optBoolean("wantConnected",false),VpnConsent.prepareReady(APP),VpnConsent.appopsAllowed(APP),
-                MihomoEngine.alive(),root.optBoolean("ipv6",true),last,rows);
+                MihomoEngine.alive(),root.optBoolean("ipv6",true),last,rows,
+                root.optString("userAgentId",UserAgents.DEFAULT_ID),root.optString("profileTitle",""),
+                root.optString("userinfo",""),AppLog.combined(APP));
             LAST=snap;
             MAIN.post(()->{for(Listener l:LISTENERS)l.onChange(snap);});
         }catch(Exception e){
-            Snapshot snap=new Snapshot("error",safe(e),"","","","",false,false,false,false,true,-1,java.util.Collections.emptyList());
+            Snapshot snap=new Snapshot("error",safe(e),"","","","",false,false,false,false,true,-1,java.util.Collections.emptyList(),
+                UserAgents.DEFAULT_ID,"","",AppLog.combined(APP));
             LAST=snap;
             MAIN.post(()->{for(Listener l:LISTENERS)l.onChange(snap);});
         }
@@ -211,10 +231,10 @@ final class VpnRuntime {
         throw WatchFail.of("VPN engine did not open its control port.");
     }
     static String safe(Exception e){
-        if(e instanceof WatchFail && e.getMessage()!=null)return e.getMessage();
-        String m=e.getMessage();
-        if(m!=null&&m.length()<180&&!m.contains("://")&&!m.contains("token="))return m;
-        return "Something went wrong.";
+        if(e==null)return "Something went wrong.";
+        String m=e instanceof WatchFail && e.getMessage()!=null?e.getMessage():(e.getClass().getSimpleName()+(e.getMessage()==null?"":": "+e.getMessage()));
+        m=AppLog.redact(m);
+        return m.length()>500?m.substring(0,500):m;
     }
     static Context app(){return APP;}
 }

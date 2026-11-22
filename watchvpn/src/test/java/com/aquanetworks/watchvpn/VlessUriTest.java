@@ -33,6 +33,14 @@ public final class VlessUriTest {
         @SuppressWarnings("unchecked") Map<String,Object> reality=(Map<String,Object>)clash.get("reality-opts");
         assertEquals("0123456789abcdef0123456789abcdef0123456789a",reality.get("public-key"));
         assertEquals("abcd1234",reality.get("short-id"));
+        assertEquals("xtls-rprx-vision",clash.get("flow"));
+        assertEquals("xudp",clash.get("packet-encoding"));
+    }
+    @Test public void packetEncodingFromQuery()throws Exception {
+        VlessUri node=VlessUri.parse("vless://11111111-1111-4111-a111-111111111111@nl.example.test:443"
+            +"?security=reality&pbk=0123456789abcdef0123456789abcdef0123456789a&sid=ab&packetEncoding=xudp&flow=xtls-rprx-vision#xudp");
+        assertEquals("xudp",node.toClash().get("packet-encoding"));
+        assertEquals("xtls-rprx-vision",node.toClash().get("flow"));
     }
     @Test public void rejectsMissingServer() {
         try{VlessUri.parse("vless://11111111-1111-4111-a111-111111111111@");fail();}

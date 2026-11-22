@@ -27,10 +27,12 @@ final class MihomoEngine {
         byte[] bytes=yaml.getBytes(StandardCharsets.UTF_8);
         try(FileOutputStream out=new FileOutputStream(config)){out.write(bytes);out.getFD().sync();}
         int pid=NativeSpawn.start(bin.getAbsolutePath(),dir.getAbsolutePath(),config.getAbsolutePath(),tunFd);
+        AppLog.line("mihomo spawn pid="+pid+" tunFd="+(tunFd>=0?"yes":"api"));
         if(pid<=0)throw WatchFail.of("Could not start the VPN engine (fork "+pid+").");
         PID.set(pid);
         if(!alive()){
             String log=tail(new File(dir,"mihomo.log"),4000);
+            AppLog.line("mihomo exited immediately "+log);
             throw WatchFail.of(log.isEmpty()?"VPN engine exited immediately.":"VPN engine failed to start.");
         }
     }
@@ -69,6 +71,10 @@ final class MihomoEngine {
         File log=new File(home(context),"mihomo.log");
         if(log.isFile())out.append("\nlog ").append(tail(log,800));
         return out.toString();
+    }
+    static String tailLog(Context context,int max){
+        if(context==null)return "";
+        return tail(new File(home(context),"mihomo.log"),max);
     }
     private static String tail(File file,int max){
         try{

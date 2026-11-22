@@ -30,15 +30,36 @@ final class Store {
         if(secret.length()>=16)return secret;
         secret=newSecret();root.put("apiSecret",secret);vault.write(root);return secret;
     }
+    synchronized String userAgentId()throws Exception{
+        String id=vault.read().optString("userAgentId",UserAgents.DEFAULT_ID);
+        return id==null||id.isEmpty()?UserAgents.DEFAULT_ID:id;
+    }
+    synchronized void setUserAgentId(String id)throws Exception{
+        JSONObject root=vault.read();
+        root.put("userAgentId",id==null||id.isEmpty()?UserAgents.DEFAULT_ID:id);
+        vault.write(root);
+    }
+    synchronized String profileTitle()throws Exception{return vault.read().optString("profileTitle","");}
+    synchronized String userinfo()throws Exception{return vault.read().optString("userinfo","");}
     synchronized void importUrl(String url,SubscriptionParser.Result parsed)throws Exception{
+        importUrl(url,parsed,userAgentId(),"","");
+    }
+    synchronized void importUrl(String url,SubscriptionParser.Result parsed,String uaId,String title,String userinfo)throws Exception{
         JSONObject root=vault.read();
         root.put("subscriptionUrl",url==null?"":url);
         root.put("kind",parsed.kind);
         root.put("nodes",SubscriptionParser.toJson(parsed.nodes));
+        if(uaId!=null&&!uaId.isEmpty())root.put("userAgentId",uaId);
+        root.put("profileTitle",title==null?"":title);
+        root.put("userinfo",userinfo==null?"":userinfo);
         String selected=root.optString("selected","");
         boolean keep=false;
         for(Map<String,Object> node:parsed.nodes)if(selected.equals(String.valueOf(node.get("name"))))keep=true;
-        if(!keep)root.put("selected",parsed.nodes.isEmpty()?"":String.valueOf(parsed.nodes.get(0).get("name")));
+        if(!keep){
+            java.util.List<Map<String,Object>> real=Placeholders.realNodes(parsed.nodes);
+            String pick=real.isEmpty()?(parsed.nodes.isEmpty()?"":String.valueOf(parsed.nodes.get(0).get("name"))):String.valueOf(real.get(0).get("name"));
+            root.put("selected",pick);
+        }
         root.put("importedAtMs",System.currentTimeMillis());
         vault.write(root);
     }

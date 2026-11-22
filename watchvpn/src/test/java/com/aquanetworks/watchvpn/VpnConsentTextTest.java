@@ -13,4 +13,10 @@ public final class VpnConsentTextTest {
         assertTrue(VpnConsent.MISSING_UI.contains(VpnConsent.APPOPS_COMMAND));
         assertTrue(VpnConsent.DENIED.contains(VpnConsent.APPOPS_COMMAND));
     }
+    @Test public void establishFailedIncludesExceptionAndAppops() {
+        String text=VpnConsent.establishFailed(null,"SecurityException: test");
+        assertTrue(text.contains("SecurityException: test"));
+        assertTrue(text.contains("ACTIVATE_VPN"));
+        assertTrue(text.contains(VpnConsent.APPOPS_COMMAND));
+    }
 }

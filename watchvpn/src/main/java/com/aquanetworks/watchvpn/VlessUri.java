@@ -52,7 +52,13 @@ final class VlessUri {
         if(!sni.isEmpty())node.put("servername",sni);
         if(!fp.isEmpty())node.put("client-fingerprint",fp);
         if(!alpn.isEmpty())node.put("alpn",alpn);
-        if(!packetEncoding.isEmpty())node.put("packet-encoding",packetEncoding);
+        String encoding=packetEncoding;
+        if(encoding.isEmpty()){
+            String xudp=query.get("xudp");
+            if("1".equals(xudp)||"true".equalsIgnoreCase(xudp)||"xudp".equalsIgnoreCase(xudp))encoding="xudp";
+        }
+        if(encoding.isEmpty())encoding="xudp";
+        node.put("packet-encoding",encoding);
         if("reality".equals(security)){
             LinkedHashMap<String,Object> reality=new LinkedHashMap<>();
             if(!pbk.isEmpty())reality.put("public-key",pbk);

@@ -107,9 +107,15 @@ final class SubscriptionParser {
             if(name.isEmpty())name="Server "+i;
             name=name.replace('\n',' ').replace('\r',' ');
             String unique=name;int n=2;while(named.containsKey(unique))unique=name+" ("+n++ +")";
-            LinkedHashMap<String,Object> copy=new LinkedHashMap<>(node);copy.put("name",unique);named.put(unique,copy);
+            LinkedHashMap<String,Object> copy=new LinkedHashMap<>(node);copy.put("name",unique);named.put(unique,vlessDefaults(copy));
         }
         return new ArrayList<>(named.values());
+    }
+    static Map<String,Object> vlessDefaults(Map<String,Object> node){
+        if(!"vless".equals(String.valueOf(node.get("type"))))return node;
+        Object encoding=node.get("packet-encoding");
+        if(encoding==null||String.valueOf(encoding).trim().isEmpty())node.put("packet-encoding","xudp");
+        return node;
     }
     static JSONArray toJson(List<Map<String,Object>> nodes)throws Exception{
         JSONArray array=new JSONArray();

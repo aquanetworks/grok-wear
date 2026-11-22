@@ -18,7 +18,9 @@ This fork also ships **Watch VPN** — a standalone Wear OS app (`com.aquanetwor
 
 Install: **[INSTALL-VPN.md](INSTALL-VPN.md)** (Russian, WearLoad / ADB, `appops ACTIVATE_VPN`).
 
-APK: `watch-vpn-armeabi-v7a.apk`. Engine: mihomo 1.19.34 as `libmihomo.so` (`armeabi-v7a`), started by a tiny JNI `fork`/`exec` so the `VpnService` TUN fd is inherited as fd 3 (`tun.file-descriptor`). Java `ProcessBuilder` cannot pass extra fds (CLOEXEC). The app UID is excluded from the TUN (`addDisallowedApplication`) so mihomo’s own sockets do not loop. DNS is fake-ip; IPv4+IPv6 routes; always-on / auto-reconnect; subscription URL in Android Keystore.
+APK: `watch-vpn-armeabi-v7a.apk` (0.1.1). Engine: mihomo 1.19.34 as `libmihomo.so` (`armeabi-v7a`), started by a tiny JNI `fork`/`exec` so the `VpnService` TUN fd is inherited as fd 3 (`tun.file-descriptor`). Java `ProcessBuilder` cannot pass extra fds (CLOEXEC). The app UID is excluded from the TUN (`addDisallowedApplication`) so mihomo’s own sockets do not loop. DNS is fake-ip; IPv4+IPv6 routes; always-on / auto-reconnect; subscription URL in Android Keystore.
+
+0.1.1 device-feedback fix: Connect calls `establish()` even when `prepare()` still returns an intent after `appops ACTIVATE_VPN allow`. Subscription User-Agent defaults to `v2raytun/android` (Remnawave `^v2raytun`) and auto-falls back if the panel returns stub nodes. On-watch **Журнал**. VLESS maps `packet-encoding: xudp` and `flow`.
 
 ### Что проверено / What was verified (Watch VPN)
 
@@ -26,13 +28,13 @@ APK: `watch-vpn-armeabi-v7a.apk`. Engine: mihomo 1.19.34 as `libmihomo.so` (`arm
 
 - Подписанный APK, `compileSdk`/`targetSdk` 36, `abiFilters armeabi-v7a`.
 - В APK есть `lib/armeabi-v7a/libmihomo.so` и `libwatchvpn-spawn.so`, без arm64.
-- Юнит-тесты: Clash YAML, V2Ray base64, `vless://` + Reality (`pbk`/`sid`/`sni`/`fp`/`flow`), `clash://install-config?url=`, TUN YAML (`file-descriptor`, fake-ip, `auto-route: false`).
+- Юнит-тесты: Clash YAML, V2Ray base64, `vless://` + Reality (`pbk`/`sid`/`sni`/`fp`/`flow`/`xudp`), `clash://install-config?url=`, TUN YAML, placeholder UA fallback.
 - Linux/amd64 mihomo на этой VM: mixed HTTP, SOCKS5 и REST на `127.0.0.1`. **TUN fd и рукопожатие VLESS/Reality не проверялись** (нет VpnService и нет боевого сервера).
 
 **Не проверено на реальных Galaxy Watch Ultra:**
 
-- Диалог `VpnService.prepare()` (часто отсутствует на Wear) и обход `adb shell appops set com.aquanetworks.watchvpn ACTIVATE_VPN allow`.
-- Реальное рукопожатие VLESS + Reality / подписка v2RayTun.
+- Повторная проверка на часах: `appops allow` + `establish()`, реальный список серверов v2RayTun/Remnawave, WhatsApp через TUN.
+- Диалог `VpnService.prepare()` (часто отсутствует на Wear).
 - WhatsApp и прочие приложения через системный TUN.
 - Always-on VPN, LTE, IPv6-маршруты, автопереподключение после обрыва.
 - Quick Settings tile / Wear tile, ввод URL с безеля, батарея с TUN + gvisor/mixed.

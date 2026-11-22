@@ -4,7 +4,6 @@ import android.app.Activity
 import android.app.RemoteInput
 import android.content.ActivityNotFoundException
 import android.content.Intent
-import android.net.VpnService
 import android.os.Bundle
 import android.view.inputmethod.EditorInfo
 import androidx.activity.ComponentActivity
@@ -80,8 +79,8 @@ private fun VpnApp(activity: ComponentActivity) {
     val prepareLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.StartActivityForResult()
     ) { result ->
-        if (result.resultCode == Activity.RESULT_OK) VpnRuntime.connect()
-        else VpnRuntime.consentDenied()
+        AppLog.line("prepare result=" + result.resultCode)
+        VpnRuntime.connect()
     }
     val inputLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.StartActivityForResult()
@@ -92,21 +91,22 @@ private fun VpnApp(activity: ComponentActivity) {
     }
 
     fun requestConnect() {
-        val prepare = try {
-            VpnService.prepare(activity)
-        } catch (e: Exception) {
-            VpnRuntime.consentMissing()
-            return
+        AppLog.line("Connect UI tap")
+        val prepare = VpnConsent.prepareIntent(activity)
+        if (VpnConsent.canLaunchPrepare(activity, prepare) && prepare != null) {
+            try {
+                AppLog.line("launching prepare activity")
+                prepareLauncher.launch(prepare)
+                return
+            } catch (e: ActivityNotFoundException) {
+                AppLog.line("prepare activity missing")
+            } catch (e: Exception) {
+                AppLog.line("prepare launch failed " + e.javaClass.simpleName)
+            }
+        } else {
+            AppLog.line("skip prepare UI, establish()")
         }
-        if (prepare == null) {
-            VpnRuntime.connect()
-            return
-        }
-        try {
-            prepareLauncher.launch(prepare)
-        } catch (e: ActivityNotFoundException) {
-            VpnRuntime.consentMissing()
-        }
+        VpnRuntime.connect()
     }
 
     fun typeSubscription() {
@@ -116,10 +116,6 @@ private fun VpnApp(activity: ComponentActivity) {
             .setAllowFreeFormInput(true)
             .setEditChoicesBeforeSending(RemoteInput.EDIT_CHOICES_BEFORE_SENDING_ENABLED)
             .build()
-        try {
-            field.javaClass // keep RemoteInput IME extras available on Wear
-        } catch (_: Exception) {
-        }
         RemoteInputIntentHelper.putRemoteInputsExtra(intent, listOf(field))
         try {
             intent.putExtra("android.intent.extra.IME_ACTION_ID", EditorInfo.IME_ACTION_DONE)
@@ -130,17 +126,30 @@ private fun VpnApp(activity: ComponentActivity) {
     }
 
     when (screen) {
-        "servers" -> ServersScreen(snap, onBack = { screen = "home" }, onSelect = { VpnRuntime.select(it) }, onTest = { VpnRuntime.testLatency(it) })
-        "help" -> HelpScreen(snap, onBack = { screen = "home" })
+        "servers" -> ServersScreen(
+            snap,
+            onBack = { screen = "home" },
+            onSelect = { VpnRuntime.select(it) },
+            onTest = { VpnRuntime.testLatency(it) },
+        )
+        "help" -> HelpScreen(
+            snap,
+            onBack = { screen = "home" },
+            onLog = { screen = "log" },
+            onUa = { VpnRuntime.setUserAgent(it) },
+        )
+        "log" -> LogScreen(snap, onBack = { screen = "help" }, onRefresh = { VpnRuntime.refreshUi() })
         else -> HomeScreen(
             snap = snap,
             onToggle = {
-                if (snap.connected() || snap.wantConnected) VpnRuntime.disconnect() else requestConnect()
+                if (snap.connected() || snap.phase == "connecting") VpnRuntime.disconnect()
+                else requestConnect()
             },
             onTypeUrl = { typeSubscription() },
             onUpdate = { VpnRuntime.refreshSubscription() },
             onServers = { screen = "servers" },
             onHelp = { screen = "help" },
+            onLog = { screen = "log" },
         )
     }
 }
@@ -153,6 +162,7 @@ private fun HomeScreen(
     onUpdate: () -> Unit,
     onServers: () -> Unit,
     onHelp: () -> Unit,
+    onLog: () -> Unit,
 ) {
     WatchList {
         item { ListHeader { Text("Watch VPN") } }
@@ -164,6 +174,26 @@ private fun HomeScreen(
                 style = MaterialTheme.typography.body2,
                 modifier = Modifier.padding(horizontal = 10.dp),
             )
+        }
+        if (snap.profileTitle.isNotEmpty()) {
+            item {
+                Text(
+                    snap.profileTitle,
+                    textAlign = TextAlign.Center,
+                    style = MaterialTheme.typography.caption2,
+                    modifier = Modifier.padding(horizontal = 10.dp),
+                )
+            }
+        }
+        if (snap.userinfo.isNotEmpty()) {
+            item {
+                Text(
+                    snap.userinfo,
+                    textAlign = TextAlign.Center,
+                    style = MaterialTheme.typography.caption3,
+                    modifier = Modifier.padding(horizontal = 10.dp),
+                )
+            }
         }
         if (snap.error.isNotEmpty()) {
             item {
@@ -178,22 +208,19 @@ private fun HomeScreen(
         }
         item {
             ToggleChip(
-                checked = snap.connected() || (snap.wantConnected && snap.phase != "error"),
+                checked = snap.connected() || snap.phase == "connecting",
                 onCheckedChange = { onToggle() },
-                label = { Text(if (snap.connected()) "Отключить" else "Подключить") },
+                label = { Text(if (snap.connected() || snap.phase == "connecting") "Отключить" else "Подключить") },
                 toggleControl = {
-                    Switch(
-                        checked = snap.connected() || (snap.wantConnected && snap.phase != "error"),
-                        enabled = !snap.busy() || snap.phase == "error",
-                    )
+                    Switch(checked = snap.connected() || snap.phase == "connecting")
                 },
-                enabled = !snap.busy() || snap.phase == "error",
+                enabled = true,
             )
         }
         item {
             Chip(
                 onClick = onServers,
-                label = { Text(if (snap.selected.isEmpty()) "Серверы" else snap.selected) },
+                label = { Text(if (snap.selected.isEmpty()) "Серверы" else "✓ ${snap.selected}") },
                 secondaryLabel = {
                     Text(
                         when {
@@ -215,9 +242,10 @@ private fun HomeScreen(
             )
         }
         item {
-            CompactChip(onClick = onUpdate, label = { Text("Обновить подписку") }, enabled = snap.urlMasked.isNotEmpty() && !snap.busy())
+            CompactChip(onClick = onUpdate, label = { Text("Обновить подписку") }, enabled = snap.urlMasked.isNotEmpty())
         }
-        item { CompactChip(onClick = onHelp, label = { Text("Справка / appops") }) }
+        item { CompactChip(onClick = onHelp, label = { Text("Справка / UA") }) }
+        item { CompactChip(onClick = onLog, label = { Text("Журнал") }) }
     }
 }
 
@@ -226,6 +254,17 @@ private fun ServersScreen(snap: Snapshot, onBack: () -> Unit, onSelect: (String)
     WatchList {
         item { ListHeader { Text("Серверы") } }
         item { CompactChip(onClick = onBack, label = { Text("Назад") }) }
+        if (snap.selected.isNotEmpty()) {
+            item {
+                Text(
+                    "Выбран: ${snap.selected}",
+                    textAlign = TextAlign.Center,
+                    color = Color(0xFF30D158),
+                    modifier = Modifier.padding(horizontal = 10.dp),
+                    style = MaterialTheme.typography.caption2,
+                )
+            }
+        }
         if (snap.servers.isEmpty()) {
             item { Text("Нет серверов. Введите ссылку подписки.", textAlign = TextAlign.Center, modifier = Modifier.padding(12.dp)) }
         }
@@ -233,10 +272,10 @@ private fun ServersScreen(snap: Snapshot, onBack: () -> Unit, onSelect: (String)
             item {
                 Chip(
                     onClick = { onSelect(row.name) },
-                    label = { Text(row.name) },
+                    label = { Text(if (row.selected) "✓ ${row.name}" else row.name) },
                     secondaryLabel = {
                         val delay = if (row.delayMs > 0) "${row.delayMs} мс" else "нет замера"
-                        Text("${row.type} · $delay${if (row.selected) " · выбран" else ""}")
+                        Text("${row.type} · $delay")
                     },
                     colors = if (row.selected) ChipDefaults.primaryChipColors() else ChipDefaults.secondaryChipColors(),
                 )
@@ -244,8 +283,7 @@ private fun ServersScreen(snap: Snapshot, onBack: () -> Unit, onSelect: (String)
             item {
                 CompactChip(
                     onClick = { onTest(row.name) },
-                    label = { Text("Пинг: ${row.name}") },
-                    enabled = !snap.busy(),
+                    label = { Text("Пинг") },
                 )
             }
         }
@@ -253,13 +291,13 @@ private fun ServersScreen(snap: Snapshot, onBack: () -> Unit, onSelect: (String)
 }
 
 @Composable
-private fun HelpScreen(snap: Snapshot, onBack: () -> Unit) {
+private fun HelpScreen(snap: Snapshot, onBack: () -> Unit, onLog: () -> Unit, onUa: (String) -> Unit) {
     WatchList {
         item { ListHeader { Text("Справка") } }
         item { CompactChip(onClick = onBack, label = { Text("Назад") }) }
         item {
             Text(
-                "Системный VPN для всех приложений (WhatsApp и остальные). Без root и Shizuku.",
+                "Системный VPN для всех приложений. Без root и Shizuku.",
                 textAlign = TextAlign.Center,
                 modifier = Modifier.padding(horizontal = 12.dp),
                 style = MaterialTheme.typography.caption2,
@@ -267,7 +305,7 @@ private fun HelpScreen(snap: Snapshot, onBack: () -> Unit) {
         }
         item {
             Text(
-                snap.consent.ifEmpty { VpnConsent.MISSING_UI },
+                snap.consent.ifEmpty { VpnConsent.APPOPS_COMMAND },
                 textAlign = TextAlign.Center,
                 modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
                 style = MaterialTheme.typography.caption2,
@@ -284,14 +322,6 @@ private fun HelpScreen(snap: Snapshot, onBack: () -> Unit) {
         }
         item {
             Text(
-                "Импорт с компьютера:\nadb shell am start -a android.intent.action.VIEW -d 'clash://install-config?url=HTTPS'",
-                textAlign = TextAlign.Center,
-                modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
-                style = MaterialTheme.typography.caption3,
-            )
-        }
-        item {
-            Text(
                 if (snap.appopsAllowed) "appops ACTIVATE_VPN: разрешён" else "appops ACTIVATE_VPN: нет",
                 textAlign = TextAlign.Center,
                 style = MaterialTheme.typography.caption2,
@@ -299,10 +329,49 @@ private fun HelpScreen(snap: Snapshot, onBack: () -> Unit) {
         }
         item {
             Text(
-                if (snap.consentReady) "VpnService.prepare: готов" else "VpnService.prepare: нужен диалог",
+                if (snap.consentReady) "VpnService.prepare: null (готово)" else "VpnService.prepare: intent (установим через establish)",
                 textAlign = TextAlign.Center,
                 style = MaterialTheme.typography.caption2,
             )
+        }
+        item {
+            Text(
+                "Клиент UA (сейчас ${UserAgents.byId(snap.userAgentId).label}). При заглушках панели пробуем остальные.",
+                textAlign = TextAlign.Center,
+                modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                style = MaterialTheme.typography.caption2,
+            )
+        }
+        UserAgents.ALL.forEach { preset ->
+            item {
+                CompactChip(
+                    onClick = { onUa(preset.id) },
+                    label = { Text(if (preset.id == snap.userAgentId) "✓ ${preset.label}" else preset.label) },
+                )
+            }
+        }
+        item { CompactChip(onClick = onLog, label = { Text("Журнал") }) }
+    }
+}
+
+@Composable
+private fun LogScreen(snap: Snapshot, onBack: () -> Unit, onRefresh: () -> Unit) {
+    val lines = snap.logText.ifEmpty { AppLog.text() }.split('\n').filter { it.isNotEmpty() }
+    WatchList {
+        item { ListHeader { Text("Журнал") } }
+        item { CompactChip(onClick = onBack, label = { Text("Назад") }) }
+        item { CompactChip(onClick = onRefresh, label = { Text("Обновить") }) }
+        if (lines.isEmpty()) {
+            item { Text("Пока пусто. Нажмите Подключить или Обновить подписку.", textAlign = TextAlign.Center, modifier = Modifier.padding(10.dp)) }
+        }
+        lines.takeLast(50).forEach { line ->
+            item {
+                Text(
+                    line,
+                    style = MaterialTheme.typography.caption3,
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+                )
+            }
         }
     }
 }
