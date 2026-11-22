@@ -42,12 +42,13 @@ public final class WatchVpnService extends VpnService {
     private int failures;
     private ConnectivityManager.NetworkCallback nets;
 
-    static void start(Context context){
+    static void startDirect(Context context){
         Intent i=new Intent(context,WatchVpnService.class).setAction(ACTION_CONNECT);
         context.startForegroundService(i);
     }
-    static void stop(Context context){
-        context.startService(new Intent(context,WatchVpnService.class).setAction(ACTION_DISCONNECT));
+    static void stopDirect(Context context){
+        try{context.startService(new Intent(context,WatchVpnService.class).setAction(ACTION_DISCONNECT));}
+        catch(Exception ignored){}
     }
     static void reload(Context context){
         context.startService(new Intent(context,WatchVpnService.class).setAction(ACTION_RELOAD));
@@ -124,8 +125,19 @@ public final class WatchVpnService extends VpnService {
                 }catch(SecurityException se){
                     AppLog.line("establish SecurityException "+se.getMessage());
                     throw WatchFail.of(VpnConsent.establishFailed(this,"SecurityException: "+se.getMessage()));
+                }catch(NullPointerException npe){
+                    AppLog.line("establish NPE "+npe.getMessage());
+                    if(VpnCapability.looksLikeMissingVpn(npe)){
+                        try{Store.get(this).setTunMode(false);}catch(Exception ignored){}
+                        throw WatchFail.of("VpnService отсутствует (IVpnManager=null). Переход на системный прокси "+SystemProxy.ENDPOINT+". "+npe.getMessage());
+                    }
+                    throw WatchFail.of(VpnConsent.establishFailed(this,"NullPointerException: "+npe.getMessage()));
                 }catch(Exception e){
                     AppLog.line("establish threw "+e.getClass().getSimpleName()+" "+e.getMessage());
+                    if(VpnCapability.looksLikeMissingVpn(e)){
+                        try{Store.get(this).setTunMode(false);}catch(Exception ignored){}
+                        throw WatchFail.of("VpnService отсутствует. Переход на системный прокси. "+e.getMessage());
+                    }
                     throw WatchFail.of(VpnConsent.establishFailed(this,e.getClass().getSimpleName()+": "+e.getMessage()));
                 }
                 if(tun==null){
@@ -155,6 +167,12 @@ public final class WatchVpnService extends VpnService {
                 closeTun();
                 String msg=VpnRuntime.safe(e);
                 AppLog.line("bringUp failed "+msg);
+                if(VpnCapability.looksLikeMissingVpn(e)||(msg!=null&&msg.contains("IVpnManager"))){
+                    try{Store.get(this).setTunMode(false);}catch(Exception ignored){}
+                    AppLog.line("TUN missing, falling back to proxy");
+                    WatchProxyService.start(this);
+                    return;
+                }
                 VpnRuntime.onServicePhase("error",msg);
                 notify("Error",msg);
                 if(isConsentFailure(e)){

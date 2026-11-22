@@ -39,6 +39,15 @@ public final class TunConfigTest {
         @SuppressWarnings("unchecked") Map<String,Object> map=(Map<String,Object>)root;
         assertFalse(map.containsKey("tun"));
         assertEquals(Boolean.FALSE,map.get("ipv6"));
+        assertEquals(Boolean.FALSE,map.get("allow-lan"));
+        assertEquals("127.0.0.1",map.get("bind-address"));
+        assertEquals("rule",map.get("mode"));
+        assertEquals((long)TunConfig.MIXED_PORT,((Number)map.get("mixed-port")).longValue());
+        assertEquals(7890L,((Number)map.get("mixed-port")).longValue());
+        assertTrue(yaml.contains("MATCH,PROXY"));
+        assertTrue(yaml.contains("proxy-server-nameserver:"));
+        @SuppressWarnings("unchecked") Map<String,Object> dns=(Map<String,Object>)map.get("dns");
+        assertEquals("fake-ip",dns.get("enhanced-mode"));
     }
     @Test public void refusesEmptyNodes() {
         try{TunConfig.render(List.of(),"x","0123456789abcdef",true,true);fail();}

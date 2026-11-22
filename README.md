@@ -12,32 +12,33 @@ Talk to any of your Grok Bots from your Wear OS watch. Hands-free, real-time voi
 
 **Works on:** Wear OS 3+ (API 30+). Tested on Galaxy Watch, Pixel Watch and the Wear OS emulator.
 
-## Watch VPN (system-wide, separate APK)
+## Watch VPN (system HTTP proxy, separate APK)
 
-This fork also ships **Watch VPN** — a standalone Wear OS app (`com.aquanetworks.watchvpn`) that runs **mihomo on a system TUN** so *every* app on the watch (WhatsApp, the browser, …) uses a VLESS + Reality subscription. It is **not** Grok Wear: different `applicationId`, different APK, round watch-first UI (the reason ClashMetaForAndroid’s Profiles tab is unusable on a Galaxy Watch Ultra).
+This fork also ships **Watch VPN** — a standalone Wear OS app (`com.aquanetworks.watchvpn`) that runs **mihomo mixed HTTP/SOCKS on `127.0.0.1:7890`**. Android `http_proxy` points apps that honor it at that listener. It is **not** Grok Wear: different `applicationId`, different APK, round watch-first UI.
 
-Install: **[INSTALL-VPN.md](INSTALL-VPN.md)** (Russian, WearLoad / ADB, `appops ACTIVATE_VPN`).
+Galaxy Watch Ultra (Android 16) has **no `IVpnManager`**: `VpnService.Builder.establish()` NPEs. TUN stays in the APK behind a capability check and is **off by default**.
 
-APK: `watch-vpn-armeabi-v7a.apk` (0.1.1). Engine: mihomo 1.19.34 as `libmihomo.so` (`armeabi-v7a`), started by a tiny JNI `fork`/`exec` so the `VpnService` TUN fd is inherited as fd 3 (`tun.file-descriptor`). Java `ProcessBuilder` cannot pass extra fds (CLOEXEC). The app UID is excluded from the TUN (`addDisallowedApplication`) so mihomo’s own sockets do not loop. DNS is fake-ip; IPv4+IPv6 routes; always-on / auto-reconnect; subscription URL in Android Keystore.
+**WhatsApp, Telegram and many messengers ignore system HTTP proxy** and are not tunneled.
 
-0.1.1 device-feedback fix: Connect calls `establish()` even when `prepare()` still returns an intent after `appops ACTIVATE_VPN allow`. Subscription User-Agent defaults to `v2raytun/android` (Remnawave `^v2raytun`) and auto-falls back if the panel returns stub nodes. On-watch **Журнал**. VLESS maps `packet-encoding: xudp` and `flow`.
+Install: **[INSTALL-VPN.md](INSTALL-VPN.md)** (Russian, WearLoad / aShell You `WRITE_SECURE_SETTINGS`).
+
+APK: `watch-vpn-armeabi-v7a.apk` (0.2.0). Engine: mihomo 1.19.34 as `libmihomo.so` (`armeabi-v7a`), JNI `fork`/`exec`. Default YAML: `mixed-port: 7890`, `allow-lan: false`, `bind-address: 127.0.0.1`, `mode: rule`, `MATCH,PROXY`. If `pm grant … WRITE_SECURE_SETTINGS` was done, Connect sets `http_proxy` and Disconnect / engine death / crash / boot-without-autoconnect clears it (`:0`). Subscription User-Agent defaults to `v2raytun/android` with placeholder fallback. On-watch **Журнал**.
 
 ### Что проверено / What was verified (Watch VPN)
 
 **Проверено в этой сборке (не на часах):**
 
-- Подписанный APK, `compileSdk`/`targetSdk` 36, `abiFilters armeabi-v7a`.
+- Подписанный APK, `compileSdk`/`targetSdk` 36, `abiFilters armeabi-v7a`, `versionName` 0.2.0.
 - В APK есть `lib/armeabi-v7a/libmihomo.so` и `libwatchvpn-spawn.so`, без arm64.
-- Юнит-тесты: Clash YAML, V2Ray base64, `vless://` + Reality (`pbk`/`sid`/`sni`/`fp`/`flow`/`xudp`), `clash://install-config?url=`, TUN YAML, placeholder UA fallback.
-- Linux/amd64 mihomo на этой VM: mixed HTTP, SOCKS5 и REST на `127.0.0.1`. **TUN fd и рукопожатие VLESS/Reality не проверялись** (нет VpnService и нет боевого сервера).
+- Юнит-тесты: Clash YAML, V2Ray base64, `vless://` + Reality, import, TUN YAML (опционально), proxy YAML (`7890`), placeholder UA, `IVpnManager` NPE detection, команды `http_proxy` / `pm grant`.
+- Linux/amd64 mihomo на этой VM (0.1.0): mixed/SOCKS/API на `127.0.0.1`. **VLESS handshake и реальный `settings put global http_proxy` не проверялись.**
 
-**Не проверено на реальных Galaxy Watch Ultra:**
+**Не проверено на реальных Galaxy Watch Ultra (нужен прогон 0.2.0):**
 
-- Повторная проверка на часах: `appops allow` + `establish()`, реальный список серверов v2RayTun/Remnawave, WhatsApp через TUN.
-- Диалог `VpnService.prepare()` (часто отсутствует на Wear).
-- WhatsApp и прочие приложения через системный TUN.
-- Always-on VPN, LTE, IPv6-маршруты, автопереподключение после обрыва.
-- Quick Settings tile / Wear tile, ввод URL с безеля, батарея с TUN + gvisor/mixed.
+- `WRITE_SECURE_SETTINGS` + авто-set/clear `http_proxy`.
+- Браузер через `127.0.0.1:7890`; watchdog при падении mihomo.
+- WhatsApp/Telegram по-прежнему без прокси (ожидаемо).
+- Плитки, LTE, батарея.
 - Эмулятор Wear x86 **не** запускает `armeabi-v7a` `.so`.
 
 ## What it does

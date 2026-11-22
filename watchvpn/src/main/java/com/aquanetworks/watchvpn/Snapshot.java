@@ -5,13 +5,14 @@ import java.util.Collections;
 import java.util.List;
 
 final class Snapshot {
-    final String phase,error,selected,urlMasked,kind,consent,userAgentId,profileTitle,userinfo,logText;
-    final boolean wantConnected,consentReady,appopsAllowed,engineAlive,ipv6;
+    final String phase,error,selected,urlMasked,kind,consent,userAgentId,profileTitle,userinfo,logText,proxyEndpoint;
+    final boolean wantConnected,consentReady,appopsAllowed,engineAlive,ipv6,writeSecure,httpProxyOn,vpnAvailable,tunMode;
     final int lastDelayMs;
     final List<ServerRow> servers;
     Snapshot(String phase,String error,String selected,String urlMasked,String kind,String consent,
              boolean wantConnected,boolean consentReady,boolean appopsAllowed,boolean engineAlive,boolean ipv6,
-             int lastDelayMs,List<ServerRow> servers,String userAgentId,String profileTitle,String userinfo,String logText){
+             int lastDelayMs,List<ServerRow> servers,String userAgentId,String profileTitle,String userinfo,String logText,
+             String proxyEndpoint,boolean writeSecure,boolean httpProxyOn,boolean vpnAvailable,boolean tunMode){
         this.phase=phase==null?"idle":phase;
         this.error=error==null?"":error;
         this.selected=selected==null?"":selected;
@@ -29,9 +30,15 @@ final class Snapshot {
         this.profileTitle=profileTitle==null?"":profileTitle;
         this.userinfo=userinfo==null?"":userinfo;
         this.logText=logText==null?"":logText;
+        this.proxyEndpoint=proxyEndpoint==null?SystemProxy.ENDPOINT:proxyEndpoint;
+        this.writeSecure=writeSecure;
+        this.httpProxyOn=httpProxyOn;
+        this.vpnAvailable=vpnAvailable;
+        this.tunMode=tunMode;
     }
     static Snapshot empty(){
-        return new Snapshot("idle","","","","","",false,false,false,false,true,-1,Collections.emptyList(),UserAgents.DEFAULT_ID,"","","");
+        return new Snapshot("idle","","","","","",false,false,false,false,true,-1,Collections.emptyList(),
+            UserAgents.DEFAULT_ID,"","","",SystemProxy.ENDPOINT,false,false,false,false);
     }
     boolean connected(){return "connected".equals(phase);}
     boolean busy(){return "connecting".equals(phase)||"stopping".equals(phase)||"updating".equals(phase)||"testing".equals(phase);}

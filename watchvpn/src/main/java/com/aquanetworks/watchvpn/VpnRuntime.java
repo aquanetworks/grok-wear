@@ -32,7 +32,10 @@ final class VpnRuntime {
                 Store store=Store.get(app);
                 if(store.wantConnected()){
                     AppLog.line("restore wantConnected, starting service");
-                    WatchVpnService.start(app);
+                    EngineServices.start(app);
+                }else{
+                    SystemProxy.clear(app);
+                    AppLog.line("restore idle — cleared http_proxy");
                 }
                 publishLocked();
             }catch(Exception e){error(safe(e));}
@@ -46,11 +49,12 @@ final class VpnRuntime {
         WORK.execute(()->{
             try{
                 Store store=Store.get(APP);
-                AppLog.line("connect tap appops="+VpnConsent.appopsAllowed(APP)+" prepareReady="+VpnConsent.prepareReady(APP)+" nodes="+store.nodes().size());
+                AppLog.line("connect tap tun="+store.tunMode()+" vpn="+VpnCapability.available(APP)
+                    +" writeSecure="+SystemProxy.canWrite(APP)+" nodes="+store.nodes().size());
                 if(store.nodes().isEmpty()){error("Import a subscription first.");return;}
                 store.setWantConnected(true);
                 phase("connecting");
-                WatchVpnService.start(APP);
+                EngineServices.start(APP);
             }catch(Exception e){error(safe(e));}
         });
     }
@@ -59,7 +63,7 @@ final class VpnRuntime {
             try{
                 Store.get(APP).setWantConnected(false);
                 phase("stopping");
-                WatchVpnService.stop(APP);
+                EngineServices.stop(APP);
             }catch(Exception e){error(safe(e));}
         });
     }
@@ -82,7 +86,7 @@ final class VpnRuntime {
                     if(!outcome.warning.isEmpty())AppLog.line(outcome.warning);
                     AppLog.line("import nodes="+outcome.parsed.nodes.size()+" real="+Placeholders.realCount(outcome.parsed.nodes)+" ua="+outcome.preset.id);
                     publishLocked();
-                    if(Store.get(APP).wantConnected())WatchVpnService.reload(APP);
+                    if(Store.get(APP).wantConnected())EngineServices.reload(APP);
                     return;
                 }
                 SubscriptionParser.Result parsed=SubscriptionParser.parse(text);
@@ -132,6 +136,16 @@ final class VpnRuntime {
             try{
                 Store.get(APP).setUserAgentId(id);
                 AppLog.line("UA preset "+id);
+                publishLocked();
+            }catch(Exception e){error(safe(e));}
+        });
+    }
+    static void setTunMode(boolean on){
+        WORK.execute(()->{
+            try{
+                boolean enable=on&&VpnCapability.available(APP);
+                Store.get(APP).setTunMode(enable);
+                AppLog.line("tunMode "+enable);
                 publishLocked();
             }catch(Exception e){error(safe(e));}
         });
@@ -197,17 +211,21 @@ final class VpnRuntime {
                 rows.add(new Snapshot.ServerRow(name,String.valueOf(node.getOrDefault("type","")),delay,name.equals(selected)));
             }
             int last=selected.isEmpty()||delays==null?-1:delays.optInt(selected,-1);
+            String help=SystemProxy.describe(APP)+"\n"+VpnCapability.describe(APP)+"\n"+SystemProxy.MESSENGER_WARN;
             Snapshot snap=new Snapshot(PHASE,ERROR,selected,ImportLinks.maskUrl(root.optString("subscriptionUrl","")),
-                root.optString("kind",""),VpnConsent.describe(APP),
+                root.optString("kind",""),help,
                 root.optBoolean("wantConnected",false),VpnConsent.prepareReady(APP),VpnConsent.appopsAllowed(APP),
                 MihomoEngine.alive(),root.optBoolean("ipv6",true),last,rows,
                 root.optString("userAgentId",UserAgents.DEFAULT_ID),root.optString("profileTitle",""),
-                root.optString("userinfo",""),AppLog.combined(APP));
+                root.optString("userinfo",""),AppLog.combined(APP),
+                SystemProxy.ENDPOINT,SystemProxy.canWrite(APP),SystemProxy.isOurs(SystemProxy.current(APP)),
+                VpnCapability.available(APP),root.optBoolean("tunMode",false));
             LAST=snap;
             MAIN.post(()->{for(Listener l:LISTENERS)l.onChange(snap);});
         }catch(Exception e){
             Snapshot snap=new Snapshot("error",safe(e),"","","","",false,false,false,false,true,-1,java.util.Collections.emptyList(),
-                UserAgents.DEFAULT_ID,"","",AppLog.combined(APP));
+                UserAgents.DEFAULT_ID,"","",AppLog.combined(APP),
+                SystemProxy.ENDPOINT,false,false,false,false);
             LAST=snap;
             MAIN.post(()->{for(Listener l:LISTENERS)l.onChange(snap);});
         }

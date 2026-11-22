@@ -4,14 +4,20 @@ import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 
-/** Restarts the tunnel after reboot when the user left it connected. Consent is checked at establish(). */
+/** After reboot: restore proxy only if the user left Connect on; otherwise clear http_proxy. */
 public final class BootReceiver extends BroadcastReceiver {
     @Override public void onReceive(Context context,Intent intent){
         if(intent==null||intent.getAction()==null)return;
         try{
-            if(!Store.get(context).wantConnected())return;
-            AppLog.line("boot start wantConnected appops="+VpnConsent.appopsAllowed(context));
-            WatchVpnService.start(context);
-        }catch(Exception ignored){}
+            if(!Store.get(context).wantConnected()){
+                SystemProxy.clear(context);
+                AppLog.line("boot auto-connect off — cleared http_proxy");
+                return;
+            }
+            AppLog.line("boot start wantConnected writeSecure="+SystemProxy.canWrite(context));
+            EngineServices.start(context);
+        }catch(Exception ignored){
+            try{SystemProxy.clear(context);}catch(Exception ignored2){}
+        }
     }
 }

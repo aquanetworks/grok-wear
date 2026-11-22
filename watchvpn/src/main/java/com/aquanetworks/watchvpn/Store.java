@@ -24,6 +24,11 @@ final class Store {
     synchronized String selected()throws Exception{return vault.read().optString("selected","");}
     synchronized boolean wantConnected()throws Exception{return vault.read().optBoolean("wantConnected",false);}
     synchronized boolean ipv6()throws Exception{return vault.read().optBoolean("ipv6",true);}
+    /** TUN is off by default — Samsung Wear often has no IVpnManager. */
+    synchronized boolean tunMode()throws Exception{return vault.read().optBoolean("tunMode",false);}
+    synchronized void setTunMode(boolean on)throws Exception{
+        JSONObject root=vault.read();root.put("tunMode",on);vault.write(root);
+    }
     synchronized String secret()throws Exception{
         JSONObject root=vault.read();
         String secret=root.optString("apiSecret","");

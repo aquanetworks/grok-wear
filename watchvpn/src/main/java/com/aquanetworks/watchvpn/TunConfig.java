@@ -6,13 +6,12 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Clash Meta config for a system VpnService TUN.
- * {@code auto-route} is off because Android already installs routes.
- * {@code file-descriptor} is the inherited TUN fd (always 3 in the child).
+ * Clash Meta config. Default is mixed HTTP/SOCKS on {@link #MIXED_PORT} (system proxy).
+ * TUN ({@code file-descriptor: 3}) is optional and off unless VpnService exists.
  */
 final class TunConfig {
     static final String GROUP="PROXY";
-    static final int MIXED_PORT=17890,SOCKS_PORT=17891,API_PORT=19090,TUN_FD=3,MTU=1400;
+    static final int MIXED_PORT=7890,SOCKS_PORT=7891,API_PORT=19090,TUN_FD=3,MTU=1400;
     static final String INET4="172.19.0.1/30",INET6="fdfe:dcba:9876::1/126";
     static final String INET4_ADDR="172.19.0.1",INET6_ADDR="fdfe:dcba:9876::1";
     static final int INET4_PREFIX=30,INET6_PREFIX=126;
@@ -82,12 +81,16 @@ final class TunConfig {
         dns.put("enhanced-mode","fake-ip");
         dns.put("fake-ip-range",FAKE_IP);
         dns.put("use-hosts",Boolean.TRUE);
+        dns.put("respect-rules",Boolean.TRUE);
         ArrayList<String> filter=new ArrayList<>();
         filter.add("*.lan");filter.add("localhost");filter.add("*.local");
         dns.put("fake-ip-filter",filter);
         ArrayList<String> defaults=new ArrayList<>();
         defaults.add(DNS4);defaults.add(DNS4B);
         dns.put("default-nameserver",defaults);
+        ArrayList<String> bootstrap=new ArrayList<>();
+        bootstrap.add(DNS4);bootstrap.add(DNS4B);
+        dns.put("proxy-server-nameserver",bootstrap);
         ArrayList<String> nameservers=new ArrayList<>();
         nameservers.add("https://dns.google/dns-query");
         nameservers.add("https://cloudflare-dns.com/dns-query");

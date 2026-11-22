@@ -22,7 +22,7 @@ public final class QsTileService extends TileService {
         if(tile==null)return;
         boolean on=snap.connected()||snap.wantConnected;
         tile.setLabel("Watch VPN");
-        if(Build.VERSION.SDK_INT>=29)tile.setSubtitle(on?(snap.selected.isEmpty()?"On":snap.selected):"Off");
+        if(Build.VERSION.SDK_INT>=29)tile.setSubtitle(on?(snap.selected.isEmpty()?SystemProxy.ENDPOINT:snap.selected):"Off");
         tile.setState(on?Tile.STATE_ACTIVE:Tile.STATE_INACTIVE);
         tile.updateTile();
     }

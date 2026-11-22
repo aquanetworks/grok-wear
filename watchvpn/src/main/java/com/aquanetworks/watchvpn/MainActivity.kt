@@ -92,19 +92,20 @@ private fun VpnApp(activity: ComponentActivity) {
 
     fun requestConnect() {
         AppLog.line("Connect UI tap")
-        val prepare = VpnConsent.prepareIntent(activity)
-        if (VpnConsent.canLaunchPrepare(activity, prepare) && prepare != null) {
-            try {
-                AppLog.line("launching prepare activity")
-                prepareLauncher.launch(prepare)
-                return
-            } catch (e: ActivityNotFoundException) {
-                AppLog.line("prepare activity missing")
-            } catch (e: Exception) {
-                AppLog.line("prepare launch failed " + e.javaClass.simpleName)
+        val snap = VpnRuntime.snapshot()
+        if (snap.tunMode && snap.vpnAvailable) {
+            val prepare = VpnConsent.prepareIntent(activity)
+            if (VpnConsent.canLaunchPrepare(activity, prepare) && prepare != null) {
+                try {
+                    AppLog.line("launching prepare activity")
+                    prepareLauncher.launch(prepare)
+                    return
+                } catch (e: ActivityNotFoundException) {
+                    AppLog.line("prepare activity missing")
+                } catch (e: Exception) {
+                    AppLog.line("prepare launch failed " + e.javaClass.simpleName)
+                }
             }
-        } else {
-            AppLog.line("skip prepare UI, establish()")
         }
         VpnRuntime.connect()
     }
@@ -137,6 +138,7 @@ private fun VpnApp(activity: ComponentActivity) {
             onBack = { screen = "home" },
             onLog = { screen = "log" },
             onUa = { VpnRuntime.setUserAgent(it) },
+            onTun = { VpnRuntime.setTunMode(it) },
         )
         "log" -> LogScreen(snap, onBack = { screen = "help" }, onRefresh = { VpnRuntime.refreshUi() })
         else -> HomeScreen(
@@ -194,6 +196,23 @@ private fun HomeScreen(
                     modifier = Modifier.padding(horizontal = 10.dp),
                 )
             }
+        }
+        item {
+            Text(
+                "Прокси ${snap.proxyEndpoint}" + if (snap.httpProxyOn) " · http_proxy вкл" else if (snap.writeSecure) "" else " · выставить вручную",
+                textAlign = TextAlign.Center,
+                style = MaterialTheme.typography.caption2,
+                modifier = Modifier.padding(horizontal = 10.dp),
+            )
+        }
+        item {
+            Text(
+                SystemProxy.MESSENGER_WARN,
+                color = Color(0xFFFFD60A),
+                textAlign = TextAlign.Center,
+                style = MaterialTheme.typography.caption3,
+                modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+            )
         }
         if (snap.error.isNotEmpty()) {
             item {
@@ -291,13 +310,13 @@ private fun ServersScreen(snap: Snapshot, onBack: () -> Unit, onSelect: (String)
 }
 
 @Composable
-private fun HelpScreen(snap: Snapshot, onBack: () -> Unit, onLog: () -> Unit, onUa: (String) -> Unit) {
+private fun HelpScreen(snap: Snapshot, onBack: () -> Unit, onLog: () -> Unit, onUa: (String) -> Unit, onTun: (Boolean) -> Unit) {
     WatchList {
         item { ListHeader { Text("Справка") } }
         item { CompactChip(onClick = onBack, label = { Text("Назад") }) }
         item {
             Text(
-                "Системный VPN для всех приложений. Без root и Shizuku.",
+                "Системный HTTP-прокси ${snap.proxyEndpoint}. Без root и Shizuku. TUN только если VpnService есть (по умолчанию выкл).",
                 textAlign = TextAlign.Center,
                 modifier = Modifier.padding(horizontal = 12.dp),
                 style = MaterialTheme.typography.caption2,
@@ -305,15 +324,23 @@ private fun HelpScreen(snap: Snapshot, onBack: () -> Unit, onLog: () -> Unit, on
         }
         item {
             Text(
-                snap.consent.ifEmpty { VpnConsent.APPOPS_COMMAND },
+                SystemProxy.MESSENGER_WARN,
+                color = Color(0xFFFFD60A),
                 textAlign = TextAlign.Center,
-                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                style = MaterialTheme.typography.caption3,
+            )
+        }
+        item {
+            Text(
+                if (snap.writeSecure) "WRITE_SECURE_SETTINGS: есть" else "WRITE_SECURE_SETTINGS: нет",
+                textAlign = TextAlign.Center,
                 style = MaterialTheme.typography.caption2,
             )
         }
         item {
             Text(
-                VpnConsent.APPOPS_COMMAND,
+                SystemProxy.GRANT_CMD,
                 textAlign = TextAlign.Center,
                 color = Color(0xFF8DB8FF),
                 modifier = Modifier.padding(horizontal = 8.dp),
@@ -322,17 +349,46 @@ private fun HelpScreen(snap: Snapshot, onBack: () -> Unit, onLog: () -> Unit, on
         }
         item {
             Text(
-                if (snap.appopsAllowed) "appops ACTIVATE_VPN: разрешён" else "appops ACTIVATE_VPN: нет",
+                SystemProxy.SET_CMD,
                 textAlign = TextAlign.Center,
-                style = MaterialTheme.typography.caption2,
+                color = Color(0xFF8DB8FF),
+                modifier = Modifier.padding(horizontal = 8.dp),
+                style = MaterialTheme.typography.caption3,
             )
         }
         item {
             Text(
-                if (snap.consentReady) "VpnService.prepare: null (готово)" else "VpnService.prepare: intent (установим через establish)",
+                SystemProxy.CLEAR_CMD,
+                textAlign = TextAlign.Center,
+                color = Color(0xFF8DB8FF),
+                modifier = Modifier.padding(horizontal = 8.dp),
+                style = MaterialTheme.typography.caption3,
+            )
+        }
+        item {
+            Text(
+                snap.consent,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                style = MaterialTheme.typography.caption3,
+            )
+        }
+        item {
+            Text(
+                if (snap.vpnAvailable) "VpnService: есть" else "VpnService: нет (IVpnManager=null)",
                 textAlign = TextAlign.Center,
                 style = MaterialTheme.typography.caption2,
             )
+        }
+        if (snap.vpnAvailable) {
+            item {
+                ToggleChip(
+                    checked = snap.tunMode,
+                    onCheckedChange = { onTun(it) },
+                    label = { Text(if (snap.tunMode) "TUN вкл" else "TUN выкл") },
+                    toggleControl = { Switch(checked = snap.tunMode) },
+                )
+            }
         }
         item {
             Text(
@@ -394,7 +450,7 @@ private fun WatchList(content: androidx.wear.compose.foundation.lazy.ScalingLazy
 
 private fun statusLine(snap: Snapshot): String {
     return when (snap.phase) {
-        "connected" -> "Подключено" + if (snap.selected.isEmpty()) "" else " · ${snap.selected}"
+        "connected" -> "Прокси ${snap.proxyEndpoint}" + if (snap.selected.isEmpty()) "" else " · ${snap.selected}"
         "connecting" -> "Подключение…"
         "stopping" -> "Отключение…"
         "updating" -> "Обновление подписки…"

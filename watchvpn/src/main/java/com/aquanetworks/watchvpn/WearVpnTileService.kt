@@ -19,7 +19,7 @@ class WearVpnTileService : TileService() {
         val future = ResolvableFuture.create<TileBuilders.Tile>()
         val snap = VpnRuntime.snapshot()
         val on = snap.connected() || snap.wantConnected
-        val title = if (on) "VPN вкл" else "VPN выкл"
+        val title = if (on) "Прокси вкл" else "Прокси выкл"
         val sub = when {
             snap.error.isNotEmpty() -> "ошибка"
             snap.selected.isNotEmpty() -> snap.selected
