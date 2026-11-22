@@ -294,7 +294,7 @@ public final class VoiceService extends Service {
     }
     private void notifyCall(){if(running)((NotificationManager)getSystemService(NOTIFICATION_SERVICE)).notify(NOTIFICATION,notification());}
     private void finish(String finalState,String safe){
-        if(!running&&session==null&&audio==null){if(savingRecord&&callHistoryEpoch==historyEpoch)return;state=finalState;error=safe;emit();stopSelf();return;}
+        if(!running&&session==null&&audio==null){if(savingRecord&&callHistoryEpoch==historyEpoch)return;state=finalState;error=safe;emit();HeadsetButtons.reclaim(getApplicationContext());stopSelf();return;}
         boolean wentLive=liveStartedAt!=0;
         if(liveStartedAt!=0){finishedElapsed=Math.max(0,SystemClock.elapsedRealtime()-liveStartedAt);liveStartedAt=0;}
         // Fixed categories only: no captions, Bot/account identifiers, credentials or remote messages.
@@ -350,7 +350,7 @@ public final class VoiceService extends Service {
             }catch(Exception ignored){savingRecord=false;syncStatus="uncertain";}
         }
         NativeAudio closing; synchronized(this){closing=audio;audio=null;}if(closing!=null)closing.close();
-        if(wake!=null){if(wake.isHeld())wake.release();wake=null;}muted=false;inputLevel=0;outputLevel=0;state=finalState;error=safe;emit();if(savingRecord){((NotificationManager)getSystemService(NOTIFICATION_SERVICE)).notify(NOTIFICATION,new NotificationCompat.Builder(this,CHANNEL).setSmallIcon(R.drawable.ic_voice_status).setContentTitle("Saving shared history").setContentText("Microphone is off").setOngoing(true).setOnlyAlertOnce(true).build());}else{stopForeground(STOP_FOREGROUND_REMOVE);stopSelf();}
+        if(wake!=null){if(wake.isHeld())wake.release();wake=null;}muted=false;inputLevel=0;outputLevel=0;state=finalState;error=safe;emit();HeadsetButtons.reclaim(getApplicationContext());if(savingRecord){((NotificationManager)getSystemService(NOTIFICATION_SERVICE)).notify(NOTIFICATION,new NotificationCompat.Builder(this,CHANNEL).setSmallIcon(R.drawable.ic_voice_status).setContentTitle("Saving shared history").setContentText("Microphone is off").setOngoing(true).setOnlyAlertOnce(true).build());}else{stopForeground(STOP_FOREGROUND_REMOVE);stopSelf();}
     }
     private static String stopCategory(String state,String safe){
         if(state.contains("five-minute")||safe.contains("five-minute"))return "call_time_limit";

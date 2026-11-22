@@ -53,19 +53,19 @@ This is an experimental client. It talks to Grok Bot's **private, undocumented c
 - The watch needs its own internet connection (Wi-Fi or LTE).
 - While Grok Wear is the watch's assistant, "Hey Google" and the watch's own assistant don't answer; choose another assistant in watch settings to switch back.
 - Reply alerts cover messages sent from the watch, for up to ten minutes after sending. Grok Bot's own push notifications go to its phone app only; Wear OS can mirror those to the watch, but tapping them opens the phone.
-- This 0.8.3 variant will not talk to Grok until Watch VPN is listening on `127.0.0.1:7890`. There is no embedded mihomo and no direct fallback.
+- This 0.8.4 variant will not talk to Grok until Watch VPN is listening on `127.0.0.1:7890`. There is no embedded mihomo and no direct fallback.
 
 ## External proxy (Watch VPN)
 
 Install: **[INSTALL-GROK.md](INSTALL-GROK.md)** (Russian, WearLoad / aShell You).
 
-Grok Wear 0.8.3 routes **all** OkHttp traffic (sign-in, API, live events, log upload, update check, **voice WebSocket**) through HTTP CONNECT `127.0.0.1:7890`. Voice is not WebRTC. The Grok API is unofficial. Settings → **Кнопка Home** chooses which Bot the assistant / headset button calls (local to the watch). Classic BT `VOICE_COMMAND` and hands-free search start that same call. Settings → **Кнопка наушников** (off by default) is a best-effort MediaSession for headset keys.
+Grok Wear 0.8.4 routes **all** OkHttp traffic (sign-in, API, live events, log upload, update check, **voice WebSocket**) through HTTP CONNECT `127.0.0.1:7890`. Voice is not WebRTC. The Grok API is unofficial. Settings → **Кнопка Home** chooses which Bot the assistant / headset button calls (local to the watch). Classic BT `VOICE_COMMAND` and hands-free search start that same call. Settings → **Кнопка наушников** (off by default) treats a short headset PLAY key as that same call when music is not playing.
 
 ### Что проверено / What was verified
 
 **Проверено в этой сборке (не на часах):**
 
-- Сборка подписанного APK, `compileSdk`/`targetSdk` 36, `applicationId si.zya.grokwear`, `versionName` 0.8.3.
+- Сборка подписанного APK, `compileSdk`/`targetSdk` 36, `applicationId si.zya.grokwear`, `versionName` 0.8.4.
 - В APK **нет** `libmihomo.so`.
 - Юнит-тесты fail-closed: без TCP 7890 запрос не уходит; DNS для Grok-хостов бросает; CONNECT proxy unresolved.
 
@@ -74,7 +74,7 @@ Grok Wear 0.8.3 routes **all** OkHttp traffic (sign-in, API, live events, log up
 - Живой вход и голос через Watch VPN из этого варианта (0.3.1 прокси на тех же часах уже работал отдельно).
 - Кнопка «Открыть Watch VPN» / GET-проверка `api.x.ai`.
 - Долгое Home / ассистент, LTE.
-- Кнопка наушников (Shokz, Galaxy Buds Pro) на часах; AT+BVRA / MediaSession.
+- Кнопка наушников с экраном выключенным; AT+BVRA; совместная работа с плеером.
 
 Grok Wear использует неофициальный API, который может сломаться без предупреждения.
 

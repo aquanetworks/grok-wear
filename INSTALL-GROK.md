@@ -1,13 +1,13 @@
-# Установка Grok Wear 0.8.3 (внешний прокси Watch VPN)
+# Установка Grok Wear 0.8.4 (внешний прокси Watch VPN)
 
 Этот вариант **не** содержит mihomo. Весь трафик Grok идёт через **Watch VPN** (`127.0.0.1:7890`, HTTP CONNECT). Без Watch VPN приложение **не** ходит в интернет напрямую.
 
 > Неофициальный клиент Grok. API может измениться или сломаться. Не аффилирован с xAI или Cursor.
 
-**Релиз:** https://github.com/aquanetworks/grok-wear/releases/tag/grok-wear-0.8.3-ext
+**Релиз:** https://github.com/aquanetworks/grok-wear/releases/tag/grok-wear-0.8.4-ext
 
-**APK:** https://github.com/aquanetworks/grok-wear/releases/download/grok-wear-0.8.3-ext/grok-wear-armeabi-v7a.apk  
-`si.zya.grokwear`, versionCode **47**, 0.8.3, armeabi-v7a, без `libmihomo.so`. Та же sideload-подпись, что 0.8.0-vless / 0.8.2-ext — ставится поверх.
+**APK:** https://github.com/aquanetworks/grok-wear/releases/download/grok-wear-0.8.4-ext/grok-wear-armeabi-v7a.apk  
+`si.zya.grokwear`, versionCode **48**, 0.8.4, armeabi-v7a, без `libmihomo.so`. Та же sideload-подпись, что 0.8.0-vless / 0.8.3-ext — ставится поверх.
 
 Сначала поставьте **Watch VPN 0.3.1**:
 https://github.com/aquanetworks/grok-wear/releases/download/watch-vpn-0.3.1/watch-vpn-armeabi-v7a.apk
@@ -95,16 +95,25 @@ logcat -d -s grokwear-assist:* | tail -20
 
 ### Лучшее усилие (opt-in)
 
-**Настройки → Кнопка наушников** (по умолчанию **Выкл**). Включает MediaSession и ловит:
+**Настройки → Кнопка наушников** (по умолчанию **Выкл**). Включает MediaSession (FGS, `setActive(true)`, PlaybackState PLAYING с `ACTION_PLAY|PAUSE|PLAY_PAUSE`). Короткое нажатие любого из:
 
-- `KEYCODE_VOICE_ASSIST`
-- длинное нажатие `KEYCODE_HEADSETHOOK` или `KEYCODE_MEDIA_PLAY_PAUSE` (≥500 мс)
+- `KEYCODE_MEDIA_PLAY` (126) — так приходит кнопка на проверенных Shokz/Buds
+- `KEYCODE_MEDIA_PLAY_PAUSE` (85)
+- `KEYCODE_HEADSETHOOK` (79)
+- `KEYCODE_MEDIA_PAUSE` (127)
+- `KEYCODE_VOICE_ASSIST` (231)
 
-Короткое play/pause Grok Wear **не** обрабатывает. Но активная MediaSession **может отобрать** кнопки у музыкального приложения — поэтому выключатель по умолчанию выкл. AT+BVRA (HFP) на Wear OS обычно превращается в `VOICE_COMMAND` или в media-key; Samsung/Google могут перехватить BVRA раньше стороннего приложения.
+срабатывает на **первом** DOWN или UP; парное событие в 1.5 с — `debounced`. Если играет другая музыка (`isMusicActive` / чужой MediaController) — `passthrough music-active`, ключ не глотаем. Во время звонка Grok: **Во время звонка** = `завершить звонок` (по умолчанию) или `микрофон`. После звонка MediaSession заново захватывается.
+
+Ожидаемые строки `grokwear-assist`: `launch`, `passthrough music-active`, `debounced`, `end-call`.
+
+Экран выключен: FGS + MediaSession должны получать кнопки без открытого UI; **в этой среде экран часов не проверялся**.
+
+AT+BVRA (HFP) на Wear OS обычно превращается в `VOICE_COMMAND` или в media-key; Samsung/Google могут перехватить BVRA раньше стороннего приложения.
 
 ### Не проверено на часах
 
-- Shokz action button и Galaxy Buds Pro touch-and-hold на SM-L705F
+- Экран выключен (screen off) для MediaSession
 - Доставка AT+BVRA в стороннее приложение на One UI Watch
 - Совместная работа с активным плеером при включённой «Кнопка наушников»
 - Hands-free `VOICE_SEARCH_HANDS_FREE` с конкретной гарнитуры

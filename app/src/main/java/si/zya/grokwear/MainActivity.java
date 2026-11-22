@@ -115,7 +115,7 @@ public final class MainActivity extends Activity {
     private boolean alertsBlocked,previewAlerts=true;
     private static final int NOTIFICATIONS=18;
     // The assistant button: a call with the main Bot once the account has loaded, and its Settings switch.
-    private boolean pendingAssist,previewButton,previewHeadset;private int assistNavigation;private long assistUntil;
+    private boolean pendingAssist,previewButton,previewHeadset,previewHeadsetHangUp=true;private int assistNavigation;private long assistUntil;
     // pickToCall: the assistant button with no main or open Bot, so the next Bot tapped is called.
     // preferencesKnown: the account's main Bot and pins arrived, so "no main Bot" is a fact, not a gap.
     private boolean pickToCall,preferencesKnown;private long rosterStartedElapsed;private TextView loadingLine;private String reportReturnScreen="settings",reportWhere="",accountLink="",authSummary="",logId="",logUploadNote="";private boolean sendLogs,logUploading;private boolean reportByEmail=true;
@@ -296,7 +296,7 @@ public final class MainActivity extends Activity {
     }
     private static String openBotExtra(Intent intent){String id=intent==null?null:intent.getStringExtra(ReplyAlertService.OPEN_BOT);return id==null||id.length()>512?"":id;}
     @Override protected void onResume(){super.onResume();visible=true;if(!preview)UpdateCheck.maybeCheck(this,()->{if(visible&&(screen.equals("bots")||screen.equals("settings")))render();});for(BotAvatarView face:avatars)face.running(true);if(waveform!=null)waveform.running(true);if(isCall()){main.removeCallbacks(callClock);main.post(callClock);}
-        if(!preview){ProxyRuntime.watch(true);VoiceService.addListener(voiceListener);ProxyRuntime.addListener(proxyListener);EventStream.add(this,live);if(SIGN_OUT_ACTIVE.get()){screen="signout_confirm";render();main.removeCallbacks(signOutObserver);main.post(signOutObserver);return;}if(awaitingMicrophonePermission&&!pendingTalkCurrent())clearPendingTalk();rosterRetries=0;
+        if(!preview){ProxyRuntime.watch(true);HeadsetButtons.reclaim(this);VoiceService.addListener(voiceListener);ProxyRuntime.addListener(proxyListener);EventStream.add(this,live);if(SIGN_OUT_ACTIVE.get()){screen="signout_confirm";render();main.removeCallbacks(signOutObserver);main.post(signOutObserver);return;}if(awaitingMicrophonePermission&&!pendingTalkCurrent())clearPendingTalk();rosterRetries=0;
             // The assistant button during a call just shows the call; after one ends, it starts the next from the Bot page.
             if(pendingAssist&&(VoiceService.snapshot().active||isCall()))pendingAssist=false;
             else if(pendingAssist&&(screen.equals("done")||screen.equals("dropped")||screen.equals("error"))){screen="ready";safeError="";}
@@ -1801,6 +1801,13 @@ public final class MainActivity extends Activity {
         });
         buds.setContentDescription(HeadsetButtons.ROW+", "+(headset?"on":"off")+". Double-tap to turn "+(headset?"off":"on"));
         label(HeadsetButtons.HINT,12,SECONDARY);gap(8);
+        boolean hangUp=preview?previewHeadsetHangUp:HeadsetButtons.endCallOnPress(this);
+        Button during=action(HeadsetButtons.CALL_ROW+": "+HeadsetButtons.callActionLabel(hangUp),()->{
+            if(preview){previewHeadsetHangUp=!previewHeadsetHangUp;render();return;}
+            HeadsetButtons.setEndCallOnPress(this,!hangUp);render();
+        });
+        during.setContentDescription(HeadsetButtons.CALL_ROW+", "+HeadsetButtons.callActionLabel(hangUp));
+        label("Кнопка наушников во время звонка Grok. По умолчанию завершает звонок.",12,SECONDARY);gap(8);
         action("Report a problem",()->openReport("","settings"));gap(8);
         label("Unofficial Grok client",12,SECONDARY);label("Not affiliated with or endorsed by xAI or Cursor.",12,SECONDARY);gap(4);label("5-minute calls · tasks go to your Bot",12,SECONDARY);label("Calls share this Bot’s main chat.",12,SECONDARY);
         action("Back",()->leaveSettings());gap(24);

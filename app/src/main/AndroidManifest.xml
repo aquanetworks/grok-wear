@@ -29,6 +29,9 @@
         <service android:name=".ReplyAlertService" android:exported="false" android:foregroundServiceType="dataSync" />
         <!-- Opt-in MediaSession for headset keys. Off unless Settings → Кнопка наушников. -->
         <service android:name=".HeadsetButtonService" android:exported="false" android:foregroundServiceType="mediaPlayback" android:stopWithTask="false" />
+        <receiver android:name=".HeadsetMediaReceiver" android:exported="true">
+            <intent-filter><action android:name="android.intent.action.MEDIA_BUTTON"/></intent-filter>
+        </receiver>
         <!-- Bound by Android only while Grok Wear is the digital assistant. -->
         <service android:name=".GrokAssistantService" android:exported="true" android:permission="android.permission.BIND_VOICE_INTERACTION">
             <meta-data android:name="android.voice_interaction" android:resource="@xml/grok_assistant" />

@@ -62,6 +62,8 @@ final class AssistLaunch {
             case KeyEvent.KEYCODE_SEARCH:return "SEARCH";
             case KeyEvent.KEYCODE_HEADSETHOOK:return "HEADSETHOOK";
             case KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE:return "MEDIA_PLAY_PAUSE";
+            case KeyEvent.KEYCODE_MEDIA_PLAY:return "MEDIA_PLAY";
+            case KeyEvent.KEYCODE_MEDIA_PAUSE:return "MEDIA_PAUSE";
             case KeyEvent.KEYCODE_CALL:return "CALL";
             default:return String.valueOf(keyCode);
         }
