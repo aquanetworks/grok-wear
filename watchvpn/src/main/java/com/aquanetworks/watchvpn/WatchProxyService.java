@@ -22,6 +22,7 @@ import androidx.wear.ongoing.Status;
 /**
  * Foreground in-process mihomo mixed HTTP/SOCKS on {@link SystemProxy#ENDPOINT}.
  * Connected is shown only after 7890 accepts TCP and a node delay check succeeds.
+ * Startup grace (30 s) never failSafes; later health needs {@link Health#FAIL_STREAK} misses.
  */
 public final class WatchProxyService extends Service {
     static final String ACTION_CONNECT="com.aquanetworks.watchvpn.PROXY_CONNECT";
@@ -30,10 +31,16 @@ public final class WatchProxyService extends Service {
     private static final String CHANNEL="watchvpn";
     private static final int NOTIFY=7;
     private static final Handler MAIN=new Handler(Looper.getMainLooper());
-    private final Runnable watchdog=this::watch;
+    private final java.util.concurrent.ExecutorService WATCH_EX=java.util.concurrent.Executors.newSingleThreadExecutor(r->{
+        Thread t=new Thread(r,"watchvpn-watch");t.setDaemon(true);return t;
+    });
+    private final Runnable watchdog=()->WATCH_EX.execute(this::watch);
     private PowerManager.WakeLock wake;
     private ConnectivityManager.NetworkCallback nets;
     private boolean healthy;
+    private long startedAt;
+    private int failStreak;
+    private String lastHealthError="";
 
     static void start(Context context){
         Intent i=new Intent(context,WatchProxyService.class).setAction(ACTION_CONNECT);
@@ -62,107 +69,139 @@ public final class WatchProxyService extends Service {
     }
     private int bringUp(){
         VpnRuntime.onServicePhase("connecting","");
-        new Thread(this::spawnProxy,"watchvpn-proxy").start();
+        new Thread(this::startInProcess,"watchvpn-inprocess").start();
         return START_STICKY;
     }
-    private void spawnProxy(){
+    private void startInProcess(){
         synchronized(this){
             try{
                 Store store=Store.get(this);
                 if(store.nodes().isEmpty())throw WatchFail.of("Import a subscription first.");
                 SystemProxy.clear(this);
                 MihomoEngine.stop();
+                AppLog.line("in-process start jni.loaded="+MihomoJni.loaded()
+                    +(MihomoJni.loaded()?"":" UnsatisfiedLinkError="+MihomoJni.loadError())
+                    +" mixed="+TunConfig.MIXED_PORT);
+                if(!MihomoJni.loaded()){
+                    throw WatchFail.of("System.loadLibrary(mihomo-jni) failed: UnsatisfiedLinkError "
+                        +(MihomoJni.loadError()==null?"":MihomoJni.loadError()));
+                }
                 String yaml=store.yaml(false,store.ipv6());
-                AppLog.line("proxy in-process mixed="+TunConfig.MIXED_PORT+" jni="+MihomoJni.loaded());
+                TransportSupport.log(store.nodes());
                 MihomoEngine.start(this,yaml,-1);
-                waitReady(store.secret());
-                String selected=TunConfig.selectedName(store.nodes(),store.selected());
-                new MihomoApi(TunConfig.API_PORT,store.secret()).select(TunConfig.GROUP,selected);
-                waitMixedPort();
-                int delay=healthDelay(store,selected);
-                AppLog.line("health delay="+delay+"ms port=open");
+                startedAt=System.currentTimeMillis();
+                failStreak=0;
+                lastHealthError="";
+                healthy=false;
                 acquireWake();
                 listenNetworks();
                 MAIN.removeCallbacks(watchdog);
-                MAIN.postDelayed(watchdog,Health.POLL_MS);
-                healthy=true;
-                if(SystemProxy.canWrite(this)){
-                    if(!SystemProxy.apply(this))AppLog.line("http_proxy apply failed after health");
-                }else{
-                    AppLog.line("proxy healthy, set manually after grant: "+SystemProxy.GRANT_CMD);
-                }
-                notify("Прокси "+SystemProxy.ENDPOINT,selected+" · "+delay+" мс");
-                String warn=SystemProxy.canWrite(this)?""
-                    :("Сначала: "+SystemProxy.GRANT_CMD+"\nПотом Connect сам ставит http_proxy. Сейчас вручную: "+SystemProxy.SET_CMD);
-                VpnRuntime.onServicePhase("connected",warn);
+                MAIN.post(watchdog);
+                notify("Запуск mihomo","ждём 127.0.0.1:"+TunConfig.MIXED_PORT+" до "+(Health.GRACE_MS/1000)+" с");
+                VpnRuntime.onServicePhase("connecting","Ожидание порта "+SystemProxy.ENDPOINT+" (до "+(Health.GRACE_MS/1000)+" с).");
             }catch(Exception e){
                 healthy=false;
                 MihomoEngine.stop();
                 releaseWake();
                 SystemProxy.clear(this);
                 String msg=Health.failMessage(SystemProxy.canWrite(this),VpnRuntime.safe(e));
-                AppLog.line("proxy bringUp failed "+msg);
+                AppLog.line("in-process bringUp failed "+msg);
                 VpnRuntime.onServicePhase("error",msg);
                 notify("Ошибка",msg);
             }
         }
     }
-    private void waitReady(String secret)throws Exception{
-        MihomoApi api=new MihomoApi(TunConfig.API_PORT,secret);
-        for(int i=0;i<50;i++){
-            if(!MihomoEngine.alive())throw WatchFail.of("Proxy engine exited. "+shortLog());
-            if(api.ready())return;
-            Thread.sleep(150);
-        }
-        throw WatchFail.of("Proxy engine did not open its control port. "+shortLog());
-    }
-    private void waitMixedPort()throws Exception{
-        for(int i=0;i<40;i++){
-            if(Health.mixedPortOpen(400))return;
-            if(!MihomoEngine.alive())throw WatchFail.of("Engine died before mixed-port "+TunConfig.MIXED_PORT+" listened.");
-            Thread.sleep(150);
-        }
-        throw WatchFail.of("127.0.0.1:"+TunConfig.MIXED_PORT+" не принимает TCP. "+shortLog());
-    }
-    private int healthDelay(Store store,String selected)throws Exception{
-        try{
-            int delay=new MihomoApi(TunConfig.API_PORT,store.secret()).delay(selected,8000);
-            if(delay<=0)throw WatchFail.of("Delay API returned no result.");
-            return delay;
-        }catch(Exception e){
-            throw WatchFail.of("Проверка узла не прошла (generate_204). "+e.getMessage());
-        }
-    }
-    private String shortLog(){
-        String d=MihomoEngine.diagnose(this);
-        return d.length()>180?d.substring(d.length()-180):d;
-    }
     private void watch(){
         try{
             if(!Store.get(this).wantConnected())return;
+            long now=System.currentTimeMillis();
+            boolean grace=Health.inGrace(startedAt,now);
             boolean port=Health.mixedPortOpen(500);
             boolean engine=MihomoEngine.alive();
-            if(!engine||!port){
-                AppLog.line("watchdog dead engine="+engine+" port="+port);
-                failSafe("Порт "+SystemProxy.ENDPOINT+" закрыт или движок не в процессе.");
+            int next=grace?Health.BIND_POLL_MS:Health.POLL_MS;
+            if(grace){
+                AppLog.line("grace ms="+(now-startedAt)+"/" +Health.GRACE_MS+" engine="+engine+" port="+port+" jni="+MihomoJni.running());
+                if(port&&engine)tryPromote();
+                MAIN.postDelayed(watchdog,next);
                 return;
             }
+            if(!engine||!port){
+                failStreak++;
+                AppLog.line("watchdog streak="+failStreak+"/"+Health.FAIL_STREAK+" engine="+engine+" port="+port);
+                if(Health.shouldFailSafe(false,failStreak)){
+                    failSafe("Порт "+SystemProxy.ENDPOINT+" закрыт или движок не в процессе.");
+                    return;
+                }
+                MAIN.postDelayed(watchdog,next);
+                return;
+            }
+            if(!tryPromote()){
+                failStreak++;
+                AppLog.line("watchdog delay streak="+failStreak+"/"+Health.FAIL_STREAK+" "+lastHealthError);
+                if(Health.shouldFailSafe(false,failStreak)){
+                    failSafe(lastHealthError.isEmpty()?"Проверка узла не прошла.":lastHealthError);
+                    return;
+                }
+            }
+            MAIN.postDelayed(watchdog,next);
+        }catch(Exception e){
+            AppLog.line("watchdog "+e.getClass().getSimpleName()+" "+e.getMessage());
+            boolean grace=Health.inGrace(startedAt,System.currentTimeMillis());
+            if(grace){
+                MAIN.postDelayed(watchdog,Health.BIND_POLL_MS);
+                return;
+            }
+            failStreak++;
+            if(Health.shouldFailSafe(false,failStreak))failSafe("Watchdog: "+e.getClass().getSimpleName());
+            else MAIN.postDelayed(watchdog,Health.POLL_MS);
+        }
+    }
+    private boolean tryPromote(){
+        try{
             Store store=Store.get(this);
             String name=TunConfig.selectedName(store.nodes(),store.selected());
-            try{
-                int delay=new MihomoApi(TunConfig.API_PORT,store.secret()).delay(name,8000);
-                AppLog.line("watchdog ok delay="+delay);
-                healthy=true;
-            }catch(Exception e){
-                AppLog.line("watchdog delay fail "+e.getMessage());
-                failSafe("Проверка узла не прошла.");
-                return;
+            MihomoApi.DelayResult result=new MihomoApi(TunConfig.API_PORT,store.secret()).delayResult(name,8000);
+            AppLog.line("delay "+result.summary());
+            if(!result.ok()){
+                lastHealthError=result.error==null?"Проверка узла не прошла.":result.error;
+                return false;
             }
-            MAIN.postDelayed(watchdog,Health.POLL_MS);
+            failStreak=0;
+            if(!healthy){
+                healthy=true;
+                if(SystemProxy.canWrite(this)){
+                    if(!SystemProxy.apply(this))AppLog.line("http_proxy apply failed after health");
+                }else{
+                    AppLog.line("proxy healthy, set manually after grant: "+SystemProxy.GRANT_CMD);
+                }
+                notify("Прокси "+SystemProxy.ENDPOINT,name+" · "+result.delayMs+" мс");
+                String warn=SystemProxy.canWrite(this)?""
+                    :("Сначала: "+SystemProxy.GRANT_CMD+"\nПотом Connect сам ставит http_proxy. Сейчас вручную: "+SystemProxy.SET_CMD);
+                VpnRuntime.onServicePhase("connected",warn);
+                pingAllAsync(store,name);
+            }
+            return true;
         }catch(Exception e){
-            AppLog.line("watchdog "+e.getClass().getSimpleName());
-            failSafe("Watchdog: "+e.getClass().getSimpleName());
+            lastHealthError=VpnRuntime.safe(e);
+            AppLog.line("delay FAIL "+lastHealthError);
+            return false;
         }
+    }
+    private void pingAllAsync(Store store,String skip){
+        new Thread(()->{
+            try{
+                MihomoApi api=new MihomoApi(TunConfig.API_PORT,store.secret());
+                for(java.util.Map<String,Object> node:store.nodes()){
+                    String name=String.valueOf(node.get("name"));
+                    if(name.equals(skip))continue;
+                    try{
+                        AppLog.line("delay "+api.delayResult(name,8000).summary());
+                    }catch(Exception e){
+                        AppLog.line("delay "+name+" FAIL "+VpnRuntime.safe(e));
+                    }
+                }
+            }catch(Exception e){AppLog.line("delay-all "+e.getClass().getSimpleName());}
+        },"watchvpn-delay").start();
     }
     private void failSafe(String reason){
         healthy=false;
@@ -181,10 +220,9 @@ public final class WatchProxyService extends Service {
         if(nets!=null)try{cm.unregisterNetworkCallback(nets);}catch(Exception ignored){}
         nets=new ConnectivityManager.NetworkCallback(){
             @Override public void onAvailable(Network network){
-                MAIN.removeCallbacks(watchdog);
-                MAIN.postDelayed(watchdog,1500);
+                AppLog.line("network available (no failSafe from callback)");
             }
-            @Override public void onLost(Network network){}
+            @Override public void onLost(Network network){AppLog.line("network lost");}
             @Override public void onCapabilitiesChanged(Network network,NetworkCapabilities caps){}
         };
         try{
@@ -218,6 +256,7 @@ public final class WatchProxyService extends Service {
         MihomoEngine.stop();
         releaseWake();
         healthy=false;
+        failStreak=0;
         VpnRuntime.onServicePhase(phase,error);
     }
     private void notify(String title,String text){

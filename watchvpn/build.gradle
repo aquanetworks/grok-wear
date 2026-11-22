@@ -21,8 +21,8 @@ android {
         applicationId 'com.aquanetworks.watchvpn'
         minSdk 30
         targetSdk 36
-        versionCode 4
-        versionName '0.3.0'
+        versionCode 5
+        versionName '0.3.1'
         ndk { abiFilters 'armeabi-v7a' }
         testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'
         externalNativeBuild {
@@ -74,7 +74,6 @@ tasks.register('buildMihomoJni', Exec) {
     environment 'ANDROID_HOME', System.getenv('ANDROID_HOME') ?: '/home/ubuntu/android-sdk'
     environment 'ANDROID_SDK_ROOT', System.getenv('ANDROID_SDK_ROOT') ?: '/home/ubuntu/android-sdk'
     environment 'ANDROID_NDK_HOME', System.getenv('ANDROID_NDK_HOME') ?: '/home/ubuntu/android-sdk/ndk/27.2.12479018'
-    onlyIf { !mihomoJniSo.exists() || mihomoJniSo.length() < 1_000_000 }
     doFirst { mihomoJniSo.parentFile.mkdirs() }
 }
 tasks.matching { it.name.startsWith('pre') && it.name.endsWith('Build') }.configureEach { dependsOn 'buildMihomoJni' }

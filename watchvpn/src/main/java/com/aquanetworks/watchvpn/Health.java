@@ -6,6 +6,9 @@ import java.net.Socket;
 /** Honest proxy liveness: mixed-port TCP plus mihomo delay through the selected node. */
 final class Health {
     static final int POLL_MS=10_000;
+    static final int GRACE_MS=30_000;
+    static final int BIND_POLL_MS=500;
+    static final int FAIL_STREAK=3;
     static final String CLEAR_BANNER=
         "Прокси мёртв — часы останутся без интернета, пока не снимете http_proxy:\n"
         +SystemProxy.CLEAR_CMD;
@@ -18,14 +21,16 @@ final class Health {
     }
     static boolean mixedPortOpen(){return portOpen("127.0.0.1",TunConfig.MIXED_PORT,500);}
     static boolean mixedPortOpen(int timeoutMs){return portOpen("127.0.0.1",TunConfig.MIXED_PORT,timeoutMs);}
-    /** Connected only when the listener accepts TCP and the node delay API succeeds. */
     static boolean connected(boolean portOk,boolean delayOk){return portOk&&delayOk;}
+    static boolean inGrace(long startedAtMs,long nowMs){
+        return startedAtMs>0&&nowMs-startedAtMs<GRACE_MS;
+    }
+    static boolean shouldFailSafe(boolean inGrace,int streak){
+        return !inGrace&&streak>=FAIL_STREAK;
+    }
     static String failMessage(boolean canWrite,String detail){
         String why=(detail==null||detail.isEmpty())?"Проверка узла не прошла.":detail;
         if(canWrite)return why+" http_proxy снят ("+SystemProxy.CLEAR_VALUE+").";
         return why+"\n"+CLEAR_BANNER;
-    }
-    static boolean needsClearBanner(boolean canWrite,boolean wantConnected,boolean actuallyUp){
-        return wantConnected&&!actuallyUp&&!canWrite;
     }
 }

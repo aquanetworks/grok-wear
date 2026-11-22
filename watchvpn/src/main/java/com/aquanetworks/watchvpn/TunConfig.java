@@ -17,11 +17,15 @@ final class TunConfig {
     static final int INET4_PREFIX=30,INET6_PREFIX=126;
     static final String DNS4="8.8.8.8",DNS4B="1.1.1.1",DNS6="2001:4860:4860::8888";
     static final String FAKE_IP="198.18.0.1/16";
+    static final String DEFAULT_LOG_LEVEL="debug";
 
     static String render(List<Map<String,Object>> nodes,String selected,String secret,boolean tun,boolean ipv6)throws Exception{
-        return render(nodes,selected,secret,tun,ipv6,TUN_FD);
+        return render(nodes,selected,secret,tun,ipv6,TUN_FD,DEFAULT_LOG_LEVEL);
     }
     static String render(List<Map<String,Object>> nodes,String selected,String secret,boolean tun,boolean ipv6,int tunFd)throws Exception{
+        return render(nodes,selected,secret,tun,ipv6,tunFd,DEFAULT_LOG_LEVEL);
+    }
+    static String render(List<Map<String,Object>> nodes,String selected,String secret,boolean tun,boolean ipv6,int tunFd,String logLevel)throws Exception{
         if(nodes==null||nodes.isEmpty())throw WatchFail.of("Pick a server from the subscription first.");
         if(secret==null||secret.length()<16)throw WatchFail.of("VPN API secret is missing.");
         ArrayList<String> names=new ArrayList<>();
@@ -37,7 +41,7 @@ final class TunConfig {
         root.put("allow-lan",Boolean.FALSE);
         root.put("bind-address","127.0.0.1");
         root.put("mode","rule");
-        root.put("log-level","error");
+        root.put("log-level",normalizeLogLevel(logLevel));
         root.put("ipv6",Boolean.valueOf(ipv6));
         root.put("external-controller","127.0.0.1:"+API_PORT);
         root.put("secret",secret);
@@ -47,7 +51,7 @@ final class TunConfig {
         root.put("tcp-concurrent",Boolean.TRUE);
         root.put("unified-delay",Boolean.TRUE);
         if(tun)root.put("tun",tunMap(ipv6,tunFd));
-        root.put("dns",dnsMap(ipv6));
+        root.put("dns",dnsMap(ipv6,tun));
         root.put("proxies",nodes);
         LinkedHashMap<String,Object> group=new LinkedHashMap<>();
         group.put("name",GROUP);group.put("type","select");group.put("proxies",names);
@@ -60,6 +64,12 @@ final class TunConfig {
         rules.add("MATCH,"+GROUP);
         root.put("rules",rules);
         return ClashYaml.dump(root)+"\n# selected: "+selected+"\n";
+    }
+    static String normalizeLogLevel(String logLevel){
+        if(logLevel==null)return DEFAULT_LOG_LEVEL;
+        String level=logLevel.trim().toLowerCase(java.util.Locale.ROOT);
+        if("debug".equals(level)||"info".equals(level)||"warning".equals(level)||"error".equals(level)||"silent".equals(level))return level;
+        return DEFAULT_LOG_LEVEL;
     }
     static Map<String,Object> tunMap(boolean ipv6){return tunMap(ipv6,TUN_FD);}
     static Map<String,Object> tunMap(boolean ipv6,int tunFd){
@@ -78,27 +88,25 @@ final class TunConfig {
         tun.put("dns-hijack",hijack);
         return tun;
     }
-    static Map<String,Object> dnsMap(boolean ipv6){
+    static Map<String,Object> dnsMap(boolean ipv6){return dnsMap(ipv6,false);}
+    static Map<String,Object> dnsMap(boolean ipv6,boolean tun){
         LinkedHashMap<String,Object> dns=new LinkedHashMap<>();
         dns.put("enable",Boolean.TRUE);
         dns.put("ipv6",Boolean.valueOf(ipv6));
-        dns.put("enhanced-mode","fake-ip");
-        dns.put("fake-ip-range",FAKE_IP);
+        dns.put("enhanced-mode",tun?"fake-ip":"redir-host");
+        if(tun)dns.put("fake-ip-range",FAKE_IP);
         dns.put("use-hosts",Boolean.TRUE);
         dns.put("respect-rules",Boolean.TRUE);
-        ArrayList<String> filter=new ArrayList<>();
-        filter.add("*.lan");filter.add("localhost");filter.add("*.local");
-        dns.put("fake-ip-filter",filter);
-        ArrayList<String> defaults=new ArrayList<>();
-        defaults.add(DNS4);defaults.add(DNS4B);
-        dns.put("default-nameserver",defaults);
-        ArrayList<String> bootstrap=new ArrayList<>();
-        bootstrap.add(DNS4);bootstrap.add(DNS4B);
-        dns.put("proxy-server-nameserver",bootstrap);
-        ArrayList<String> nameservers=new ArrayList<>();
-        nameservers.add("https://dns.google/dns-query");
-        nameservers.add("https://cloudflare-dns.com/dns-query");
-        dns.put("nameserver",nameservers);
+        if(tun){
+            ArrayList<String> filter=new ArrayList<>();
+            filter.add("*.lan");filter.add("localhost");filter.add("*.local");
+            dns.put("fake-ip-filter",filter);
+        }
+        ArrayList<String> plain=new ArrayList<>();
+        plain.add(DNS4B);plain.add(DNS4);
+        dns.put("default-nameserver",new ArrayList<>(plain));
+        dns.put("proxy-server-nameserver",new ArrayList<>(plain));
+        dns.put("nameserver",new ArrayList<>(plain));
         return dns;
     }
     static String selectedName(List<Map<String,Object>> nodes,String selected){

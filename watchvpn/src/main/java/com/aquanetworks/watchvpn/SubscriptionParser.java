@@ -115,6 +115,14 @@ final class SubscriptionParser {
         if(!"vless".equals(String.valueOf(node.get("type"))))return node;
         Object encoding=node.get("packet-encoding");
         if(encoding==null||String.valueOf(encoding).trim().isEmpty())node.put("packet-encoding","xudp");
+        if(!node.containsKey("udp"))node.put("udp",Boolean.TRUE);
+        Object tls=node.get("tls");
+        boolean reality=node.get("reality-opts") instanceof Map;
+        boolean useTls=reality||Boolean.TRUE.equals(tls)||"true".equalsIgnoreCase(String.valueOf(tls));
+        Object fp=node.get("client-fingerprint");
+        if(useTls&&(fp==null||String.valueOf(fp).trim().isEmpty()))node.put("client-fingerprint","chrome");
+        Object net=node.get("network");
+        if(TransportSupport.isXhttp(net==null?"":String.valueOf(net)))node.put("network","xhttp");
         return node;
     }
     static JSONArray toJson(List<Map<String,Object>> nodes)throws Exception{

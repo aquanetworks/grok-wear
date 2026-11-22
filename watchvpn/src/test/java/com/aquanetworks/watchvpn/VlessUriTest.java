@@ -1,6 +1,7 @@
 package com.aquanetworks.watchvpn;
 
 import org.junit.Test;
+import java.util.List;
 import java.util.Map;
 import static org.junit.Assert.*;
 
@@ -35,6 +36,30 @@ public final class VlessUriTest {
         assertEquals("abcd1234",reality.get("short-id"));
         assertEquals("xtls-rprx-vision",clash.get("flow"));
         assertEquals("xudp",clash.get("packet-encoding"));
+        assertEquals(Boolean.TRUE,clash.get("udp"));
+    }
+    @Test public void realityDefaultsFingerprintChrome()throws Exception {
+        Map<String,Object> clash=VlessUri.parse("vless://11111111-1111-4111-a111-111111111111@nl.example.test:443"
+            +"?encryption=none&flow=xtls-rprx-vision&security=reality&sni=www.cloudflare.com"
+            +"&pbk=0123456789abcdef0123456789abcdef0123456789a&sid=abcd1234&type=tcp#no-fp").toClash();
+        assertEquals("chrome",clash.get("client-fingerprint"));
+        assertEquals(Boolean.TRUE,clash.get("tls"));
+        @SuppressWarnings("unchecked") Map<String,Object> reality=(Map<String,Object>)clash.get("reality-opts");
+        assertEquals("0123456789abcdef0123456789abcdef0123456789a",reality.get("public-key"));
+        assertEquals("abcd1234",reality.get("short-id"));
+    }
+    @Test public void xhttpIsMappedAndReported()throws Exception {
+        Map<String,Object> clash=VlessUri.parse("vless://11111111-1111-4111-a111-111111111111@nl.example.test:443"
+            +"?security=reality&pbk=0123456789abcdef0123456789abcdef0123456789a&sid=ab"
+            +"&type=xhttp&path=/x&host=www.cloudflare.com&mode=auto&fp=chrome#xh").toClash();
+        assertEquals("xhttp",clash.get("network"));
+        @SuppressWarnings("unchecked") Map<String,Object> opts=(Map<String,Object>)clash.get("xhttp-opts");
+        assertEquals("/x",opts.get("path"));
+        assertEquals("www.cloudflare.com",opts.get("host"));
+        assertEquals("auto",opts.get("mode"));
+        List<String> notes=TransportSupport.notes(List.of(clash));
+        assertEquals(1,notes.size());
+        assertTrue(notes.get(0).toLowerCase().contains("xhttp"));
     }
     @Test public void packetEncodingFromQuery()throws Exception {
         VlessUri node=VlessUri.parse("vless://11111111-1111-4111-a111-111111111111@nl.example.test:443"

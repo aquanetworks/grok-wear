@@ -13,5 +13,11 @@ public final class WatchVpnApp extends Application {
             else{android.os.Process.killProcess(android.os.Process.myPid());System.exit(10);}
         });
         VpnRuntime.attach(this);
+        try{
+            AppLog.line("boot jni loaded="+MihomoJni.loaded()
+                +(MihomoJni.loaded()?(" version="+MihomoJni.version()):(" UnsatisfiedLinkError="+MihomoJni.loadError())));
+        }catch(Throwable t){
+            AppLog.line("boot jni "+t.getClass().getSimpleName()+": "+t.getMessage());
+        }
     }
 }

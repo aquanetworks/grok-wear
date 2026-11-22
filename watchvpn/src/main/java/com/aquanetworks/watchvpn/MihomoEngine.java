@@ -29,14 +29,19 @@ final class MihomoEngine {
         File config=new File(dir,"config.yaml");
         byte[] bytes=yaml.getBytes(StandardCharsets.UTF_8);
         try(FileOutputStream out=new FileOutputStream(config)){out.write(bytes);out.getFD().sync();}
+        ConfigDump.log(yaml);
         boolean exec=false;
         try{exec=Store.get(context).execFallback();}catch(Exception ignored){}
         if(exec&&binary(context).isFile()){
             startExec(context,dir,config,tunFd);
             return;
         }
-        AppLog.line("mihomo in-process "+MihomoJni.version()+" lib="+(jniLib(context).isFile()?"yes":"no"));
-        if(!MihomoJni.loaded())throw WatchFail.of("libmihomo-jni.so failed to load. "+MihomoJni.loadError());
+        AppLog.line("mihomo in-process "+MihomoJni.version()+" lib="+(jniLib(context).isFile()?"yes":"no")
+            +" loaded="+MihomoJni.loaded());
+        if(!MihomoJni.loaded()){
+            AppLog.line("UnsatisfiedLinkError "+MihomoJni.loadError());
+            throw WatchFail.of("libmihomo-jni.so failed to load. UnsatisfiedLinkError: "+MihomoJni.loadError());
+        }
         String err=MihomoJni.start(dir.getAbsolutePath(),config.getAbsolutePath());
         if(err!=null&&!err.trim().isEmpty()){
             AppLog.line("mihomo start error "+err);

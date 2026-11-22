@@ -43,14 +43,18 @@ final class VlessUri {
     }
     Map<String,Object> toClash(){
         LinkedHashMap<String,Object> node=new LinkedHashMap<>();
+        String net=network;
+        if(TransportSupport.isXhttp(net))net="xhttp";
         node.put("name",name);node.put("type","vless");node.put("server",host);node.put("port",port);
-        node.put("uuid",uuid);node.put("network",network);node.put("udp",Boolean.TRUE);
+        node.put("uuid",uuid);node.put("network",net);node.put("udp",Boolean.TRUE);
         node.put("encryption",encryption==null||encryption.isEmpty()?"none":encryption);
         if(!flow.isEmpty())node.put("flow",flow);
         boolean tls="tls".equals(security)||"reality".equals(security);
         node.put("tls",Boolean.valueOf(tls));
         if(!sni.isEmpty())node.put("servername",sni);
-        if(!fp.isEmpty())node.put("client-fingerprint",fp);
+        String fingerprint=fp;
+        if(fingerprint.isEmpty()&&("reality".equals(security)||tls))fingerprint="chrome";
+        if(!fingerprint.isEmpty())node.put("client-fingerprint",fingerprint);
         if(!alpn.isEmpty())node.put("alpn",alpn);
         String encoding=packetEncoding;
         if(encoding.isEmpty()){
@@ -66,21 +70,28 @@ final class VlessUri {
             if(!spx.isEmpty())reality.put("spider-x",spx);
             node.put("reality-opts",reality);
         }
-        if("ws".equals(network)||"httpupgrade".equals(network)||"h2".equals(network)||"http".equals(network)){
+        if("ws".equals(net)||"httpupgrade".equals(net)||"h2".equals(net)||"http".equals(net)){
             LinkedHashMap<String,Object> opts=new LinkedHashMap<>();
             if(!path.isEmpty())opts.put("path",path);
             if(!hostHeader.isEmpty()){
                 LinkedHashMap<String,Object> headers=new LinkedHashMap<>();headers.put("Host",hostHeader);opts.put("headers",headers);
             }
-            if(!opts.isEmpty())node.put(network+"-opts",opts);
+            if(!opts.isEmpty())node.put(net+"-opts",opts);
         }
-        if("grpc".equals(network)){
+        if("grpc".equals(net)){
             LinkedHashMap<String,Object> opts=new LinkedHashMap<>();
             if(!serviceName.isEmpty())opts.put("grpc-service-name",serviceName);
             if(!mode.isEmpty())opts.put("grpc-mode",mode);
             if(!opts.isEmpty())node.put("grpc-opts",opts);
         }
-        if(!headerType.isEmpty()&&"tcp".equals(network)){
+        if("xhttp".equals(net)){
+            LinkedHashMap<String,Object> opts=new LinkedHashMap<>();
+            if(!path.isEmpty())opts.put("path",path);
+            if(!hostHeader.isEmpty())opts.put("host",hostHeader);
+            if(!mode.isEmpty())opts.put("mode",mode);
+            if(!opts.isEmpty())node.put("xhttp-opts",opts);
+        }
+        if(!headerType.isEmpty()&&"tcp".equals(net)){
             LinkedHashMap<String,Object> opts=new LinkedHashMap<>();opts.put("header",headerType);node.put("tcp-opts",opts);
         }
         return node;

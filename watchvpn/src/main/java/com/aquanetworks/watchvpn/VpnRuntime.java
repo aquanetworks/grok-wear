@@ -84,6 +84,7 @@ final class VpnRuntime {
                     PHASE="idle";
                     ERROR=outcome.placeholdersOnly?outcome.warning:"";
                     if(!outcome.warning.isEmpty())AppLog.line(outcome.warning);
+                    TransportSupport.log(outcome.parsed.nodes);
                     AppLog.line("import nodes="+outcome.parsed.nodes.size()+" real="+Placeholders.realCount(outcome.parsed.nodes)+" ua="+outcome.preset.id);
                     publishLocked();
                     if(Store.get(APP).wantConnected())EngineServices.reload(APP);
@@ -149,6 +150,23 @@ final class VpnRuntime {
             }catch(Exception e){error(safe(e));}
         });
     }
+    static void setLogLevel(String level){
+        WORK.execute(()->{
+            try{
+                Store.get(APP).setLogLevel(level);
+                AppLog.line("log-level "+Store.get(APP).logLevel());
+                publishLocked();
+                if(Store.get(APP).wantConnected())EngineServices.reload(APP);
+            }catch(Exception e){error(safe(e));}
+        });
+    }
+    static String nextLogLevel(String current){
+        String level=TunConfig.normalizeLogLevel(current);
+        if("debug".equals(level))return "info";
+        if("info".equals(level))return "warning";
+        if("warning".equals(level))return "error";
+        return "debug";
+    }
     static void setTunMode(boolean on){
         WORK.execute(()->{
             try{
@@ -169,13 +187,16 @@ final class VpnRuntime {
                     String yaml=store.yaml(false,false);
                     MihomoEngine.start(APP,yaml,-1);
                     started=true;
-                    waitReady(store.secret(),40);
+                    waitReady(store.secret(),Health.GRACE_MS/Health.BIND_POLL_MS);
                 }
+                String target=name.isEmpty()?Store.get(APP).selected():name;
                 MihomoApi api=new MihomoApi(TunConfig.API_PORT,Store.get(APP).secret());
-                if(!name.isEmpty())api.select(TunConfig.GROUP,name);
-                int delay=api.delay(name.isEmpty()?Store.get(APP).selected():name,5000);
+                if(!target.isEmpty())api.select(TunConfig.GROUP,target);
+                MihomoApi.DelayResult result=api.delayResult(target,8000);
+                AppLog.line("delay "+result.summary());
+                if(!result.ok())throw WatchFail.of(result.error);
                 LinkedHashMap<String,Integer> map=new LinkedHashMap<>();
-                map.put(name.isEmpty()?Store.get(APP).selected():name,delay);
+                map.put(target,result.delayMs);
                 Store.get(APP).putDelays(mergeDelays(map));
                 if(started&&!Store.get(APP).wantConnected())MihomoEngine.stop();
                 PHASE=MihomoEngine.alive()&&Store.get(APP).wantConnected()?"connected":"idle";
@@ -228,13 +249,13 @@ final class VpnRuntime {
                 root.optString("userAgentId",UserAgents.DEFAULT_ID),root.optString("profileTitle",""),
                 root.optString("userinfo",""),AppLog.combined(APP),
                 SystemProxy.ENDPOINT,SystemProxy.canWrite(APP),SystemProxy.isOurs(SystemProxy.current(APP)),
-                VpnCapability.available(APP),root.optBoolean("tunMode",false));
+                VpnCapability.available(APP),root.optBoolean("tunMode",false),store.logLevel());
             LAST=snap;
             MAIN.post(()->{for(Listener l:LISTENERS)l.onChange(snap);});
         }catch(Exception e){
             Snapshot snap=new Snapshot("error",safe(e),"","","","",false,false,false,false,true,-1,java.util.Collections.emptyList(),
                 UserAgents.DEFAULT_ID,"","",AppLog.combined(APP),
-                SystemProxy.ENDPOINT,false,false,false,false);
+                SystemProxy.ENDPOINT,false,false,false,false,TunConfig.DEFAULT_LOG_LEVEL);
             LAST=snap;
             MAIN.post(()->{for(Listener l:LISTENERS)l.onChange(snap);});
         }
@@ -253,7 +274,7 @@ final class VpnRuntime {
         MihomoApi api=new MihomoApi(TunConfig.API_PORT,secret);
         for(int i=0;i<ticks;i++){
             if(api.ready())return;
-            Thread.sleep(150);
+            Thread.sleep(Health.BIND_POLL_MS);
         }
         throw WatchFail.of("VPN engine did not open its control port.");
     }

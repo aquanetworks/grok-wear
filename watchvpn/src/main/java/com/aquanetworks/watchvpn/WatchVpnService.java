@@ -189,10 +189,10 @@ public final class WatchVpnService extends VpnService {
     }
     private void waitReady(String secret)throws Exception{
         MihomoApi api=new MihomoApi(TunConfig.API_PORT,secret);
-        for(int i=0;i<50;i++){
+        for(int i=0;i<Health.GRACE_MS/Health.BIND_POLL_MS;i++){
             if(!MihomoEngine.alive())throw WatchFail.of("VPN engine exited. "+shortLog());
             if(api.ready())return;
-            Thread.sleep(150);
+            Thread.sleep(Health.BIND_POLL_MS);
         }
         throw WatchFail.of("VPN engine did not open its control port. "+shortLog());
     }
@@ -227,8 +227,7 @@ public final class WatchVpnService extends VpnService {
         if(nets!=null)try{cm.unregisterNetworkCallback(nets);}catch(Exception ignored){}
         nets=new ConnectivityManager.NetworkCallback(){
             @Override public void onAvailable(Network network){
-                MAIN.removeCallbacks(watchdog);
-                MAIN.postDelayed(watchdog,1500);
+                AppLog.line("tun network available (no failSafe from callback)");
             }
             @Override public void onLost(Network network){}
             @Override public void onCapabilitiesChanged(Network network,NetworkCapabilities caps){}

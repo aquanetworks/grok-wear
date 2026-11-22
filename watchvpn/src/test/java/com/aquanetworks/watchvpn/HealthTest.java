@@ -23,5 +23,19 @@ public final class HealthTest {
     }
     @Test public void pollIntervalIsTenSeconds() {
         assertEquals(10_000,Health.POLL_MS);
+        assertEquals(30_000,Health.GRACE_MS);
+        assertEquals(500,Health.BIND_POLL_MS);
+        assertEquals(3,Health.FAIL_STREAK);
+    }
+    @Test public void neverFailSafeDuringGrace() {
+        long start=1_000L;
+        assertTrue(Health.inGrace(start,start+1));
+        assertTrue(Health.inGrace(start,start+29_999));
+        assertFalse(Health.inGrace(start,start+30_000));
+        assertFalse(Health.shouldFailSafe(true,1));
+        assertFalse(Health.shouldFailSafe(true,99));
+        assertFalse(Health.shouldFailSafe(false,2));
+        assertTrue(Health.shouldFailSafe(false,3));
+        assertTrue(Health.shouldFailSafe(false,4));
     }
 }

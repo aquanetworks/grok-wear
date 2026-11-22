@@ -139,6 +139,7 @@ private fun VpnApp(activity: ComponentActivity) {
             onLog = { screen = "log" },
             onUa = { VpnRuntime.setUserAgent(it) },
             onTun = { VpnRuntime.setTunMode(it) },
+            onLogLevel = { VpnRuntime.setLogLevel(VpnRuntime.nextLogLevel(snap.logLevel)) },
         )
         "log" -> LogScreen(snap, onBack = { screen = "help" }, onRefresh = { VpnRuntime.refreshUi() })
         else -> HomeScreen(
@@ -336,7 +337,7 @@ private fun ServersScreen(snap: Snapshot, onBack: () -> Unit, onSelect: (String)
 }
 
 @Composable
-private fun HelpScreen(snap: Snapshot, onBack: () -> Unit, onLog: () -> Unit, onUa: (String) -> Unit, onTun: (Boolean) -> Unit) {
+private fun HelpScreen(snap: Snapshot, onBack: () -> Unit, onLog: () -> Unit, onUa: (String) -> Unit, onTun: (Boolean) -> Unit, onLogLevel: () -> Unit) {
     WatchList {
         item { ListHeader { Text("Справка") } }
         item { CompactChip(onClick = onBack, label = { Text("Назад") }) }
@@ -418,9 +419,24 @@ private fun HelpScreen(snap: Snapshot, onBack: () -> Unit, onLog: () -> Unit, on
         }
         item {
             Text(
-                "Движок in-process (libmihomo-jni). Exec-потомок Android убивает (phantom process).",
+                "Движок in-process (libmihomo-jni). Exec-потомок Android убивает (phantom process). Старт: до 30 с на bind 7890, failSafe только после 3 проверок по 10 с.",
                 textAlign = TextAlign.Center,
                 modifier = Modifier.padding(horizontal = 10.dp),
+                style = MaterialTheme.typography.caption3,
+            )
+        }
+        item {
+            CompactChip(
+                onClick = onLogLevel,
+                label = { Text("log-level: ${snap.logLevel}") },
+            )
+        }
+        item {
+            Text(
+                "aShell You, логи:\nlogcat -d -s mihomo:* watchvpn:* watchvpn-config:* | tail -80",
+                textAlign = TextAlign.Center,
+                color = Color(0xFF8DB8FF),
+                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
                 style = MaterialTheme.typography.caption3,
             )
         }

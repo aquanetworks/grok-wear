@@ -5,14 +5,14 @@ import java.util.Collections;
 import java.util.List;
 
 final class Snapshot {
-    final String phase,error,selected,urlMasked,kind,consent,userAgentId,profileTitle,userinfo,logText,proxyEndpoint;
+    final String phase,error,selected,urlMasked,kind,consent,userAgentId,profileTitle,userinfo,logText,proxyEndpoint,logLevel;
     final boolean wantConnected,consentReady,appopsAllowed,engineAlive,ipv6,writeSecure,httpProxyOn,vpnAvailable,tunMode;
     final int lastDelayMs;
     final List<ServerRow> servers;
     Snapshot(String phase,String error,String selected,String urlMasked,String kind,String consent,
              boolean wantConnected,boolean consentReady,boolean appopsAllowed,boolean engineAlive,boolean ipv6,
              int lastDelayMs,List<ServerRow> servers,String userAgentId,String profileTitle,String userinfo,String logText,
-             String proxyEndpoint,boolean writeSecure,boolean httpProxyOn,boolean vpnAvailable,boolean tunMode){
+             String proxyEndpoint,boolean writeSecure,boolean httpProxyOn,boolean vpnAvailable,boolean tunMode,String logLevel){
         this.phase=phase==null?"idle":phase;
         this.error=error==null?"":error;
         this.selected=selected==null?"":selected;
@@ -35,10 +35,11 @@ final class Snapshot {
         this.httpProxyOn=httpProxyOn;
         this.vpnAvailable=vpnAvailable;
         this.tunMode=tunMode;
+        this.logLevel=logLevel==null||logLevel.isEmpty()?TunConfig.DEFAULT_LOG_LEVEL:logLevel;
     }
     static Snapshot empty(){
         return new Snapshot("idle","","","","","",false,false,false,false,true,-1,Collections.emptyList(),
-            UserAgents.DEFAULT_ID,"","","",SystemProxy.ENDPOINT,false,false,false,false);
+            UserAgents.DEFAULT_ID,"","","",SystemProxy.ENDPOINT,false,false,false,false,TunConfig.DEFAULT_LOG_LEVEL);
     }
     boolean connected(){return "connected".equals(phase);}
     boolean busy(){return "connecting".equals(phase)||"stopping".equals(phase)||"updating".equals(phase)||"testing".equals(phase);}

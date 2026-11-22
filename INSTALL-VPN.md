@@ -2,11 +2,11 @@
 
 Отдельное приложение **Watch VPN** (`com.aquanetworks.watchvpn`) поднимает **mihomo in-process** (`libmihomo-jni.so` в том же процессе, что и foreground-сервис). Mixed HTTP/SOCKS слушает **`127.0.0.1:7890`**. Системный `http_proxy` направляет туда приложения, которые его уважают.
 
-Это **не TUN / не VpnService**. На Galaxy Watch Ultra нет `IVpnManager`. Exec-потомок `libmihomo.so` Android убивает (phantom process) — в 0.3.0 его нет.
+Это **не TUN / не VpnService**. На Galaxy Watch Ultra нет `IVpnManager`. Exec-потомок `libmihomo.so` Android убивает (phantom process) — в 0.3.x его нет.
 
 **WhatsApp, Telegram и многие мессенджеры игнорируют системный HTTP-прокси.**
 
-**APK:** `watch-vpn-armeabi-v7a.apk` (версия **0.3.0**). Подпись — тот же sideload-ключ, что и Grok Wear.
+**APK:** `watch-vpn-armeabi-v7a.apk` (версия **0.3.1**). Подпись — тот же sideload-ключ, что и Grok Wear.
 
 > Боевую ссылку подписки в репозиторий и в чаты не кладите.
 
@@ -18,7 +18,7 @@
 
 ## 2. Установка
 
-WearLoad / `adb install -r --no-streaming watch-vpn-armeabi-v7a.apk` (тот же ключ, что 0.1–0.2).
+WearLoad / `adb install -r --no-streaming watch-vpn-armeabi-v7a.apk` (тот же ключ, что 0.1–0.3.0).
 
 ## 3. Команды aShell You (без префикса `adb shell`), по порядку
 
@@ -29,6 +29,8 @@ pm grant com.aquanetworks.watchvpn android.permission.WRITE_SECURE_SETTINGS
 ```
 
 Потом откройте Watch VPN → **Подключить**. Зелёный «Прокси 127.0.0.1:7890» появляется **только** если порт 7890 принимает TCP **и** проверка узла (generate_204) прошла. Тогда приложение само ставит `http_proxy`.
+
+Старт: до **30 с** на bind порта (опрос каждые 500 мс). Watchdog **не** снимает прокси в этот период. После grace — **3** подряд неудачи с интервалом 10 с.
 
 Пока grant нет — после зелёного Connected вручную:
 
@@ -50,7 +52,21 @@ settings put global http_proxy :0
 dumpsys deviceidle whitelist +com.aquanetworks.watchvpn
 ```
 
-## 4. Подписка
+## 4. Логи (aShell You)
+
+После Connect скопируйте:
+
+```
+logcat -d -s mihomo:* watchvpn:* watchvpn-config:* | tail -80
+```
+
+- `mihomo` — debug-лог движка (Reality / TLS / DNS / timeout).
+- `watchvpn` — JNI `System.loadLibrary`, grace, delay по узлам, failSafe.
+- `watchvpn-config` — сгенерированный `config.yaml` (uuid/pbk/sid/secret замазаны).
+
+На часах: **Справка → Журнал**.
+
+## 5. Подписка
 
 **Подписка** в приложении или:
 
@@ -58,20 +74,21 @@ dumpsys deviceidle whitelist +com.aquanetworks.watchvpn
 am start -a android.intent.action.VIEW -d 'watchvpn://import?url=https://example.test/subscribe'
 ```
 
-Нажмите сервер (✓) → **Подключить**. **Пинг** меряет задержку через API mihomo.
+Нажмите сервер (✓) → **Подключить**. **Пинг** меряет задержку через API mihomo и пишет точную ошибку узла в logcat/Журнал.
 
-## 5. Что проксируется
+## 6. Что проксируется
 
 Браузер и приложения, которые читают `http_proxy`. **WhatsApp / Telegram — нет.**
 
-Отключить / падение движка / неудачная проверка раз в ~10 с снимает `http_proxy` (если grant есть).
+Отключить / падение движка / 3 неудачные проверки снимают `http_proxy` (если grant есть).
 
 ## Если не подключается
 
 | Симптом | Что делать |
 |---|---|
 | Нет интернета у всех приложений | `settings put global http_proxy :0` |
-| Connected без реального прокси (0.2.0) | Поставьте 0.3.0: in-process, Connected только после TCP+health |
+| 0.3.0: failSafe ~1.8 с, порт не успел открыться | Поставьте **0.3.1** (grace 30 с) |
+| Браузер «proxy problem» при LISTEN 7890 | Смотрите `mihomo` delay: reality / tls / timeout / dns |
 | WhatsApp без прокси | Ожидаемо |
 | Подписка-заглушки | Справка / UA → v2RayTun → Обновить |
 

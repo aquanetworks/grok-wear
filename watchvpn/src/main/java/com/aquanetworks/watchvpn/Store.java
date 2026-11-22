@@ -34,6 +34,12 @@ final class Store {
     synchronized void setExecFallback(boolean on)throws Exception{
         JSONObject root=vault.read();root.put("execFallback",on);vault.write(root);
     }
+    synchronized String logLevel()throws Exception{
+        return TunConfig.normalizeLogLevel(vault.read().optString("logLevel",TunConfig.DEFAULT_LOG_LEVEL));
+    }
+    synchronized void setLogLevel(String level)throws Exception{
+        JSONObject root=vault.read();root.put("logLevel",TunConfig.normalizeLogLevel(level));vault.write(root);
+    }
     synchronized String secret()throws Exception{
         JSONObject root=vault.read();
         String secret=root.optString("apiSecret","");
@@ -113,7 +119,7 @@ final class Store {
         List<Map<String,Object>> nodes=SubscriptionParser.fromJson(root.optJSONArray("nodes"));
         String secret=root.optString("apiSecret","");
         if(secret.length()<16){secret=newSecret();root.put("apiSecret",secret);vault.write(root);}
-        return TunConfig.render(nodes,root.optString("selected",""),secret,tun,ipv6,tunFd);
+        return TunConfig.render(nodes,root.optString("selected",""),secret,tun,ipv6,tunFd,logLevel());
     }
     private static String newSecret(){
         byte[] bytes=new byte[16];new SecureRandom().nextBytes(bytes);
