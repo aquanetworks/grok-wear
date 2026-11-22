@@ -18,6 +18,7 @@ final class SystemProxy {
     static final String GRANT_CMD="pm grant com.aquanetworks.watchvpn android.permission.WRITE_SECURE_SETTINGS";
     static final String SET_CMD="settings put global http_proxy "+ENDPOINT;
     static final String CLEAR_CMD="settings put global http_proxy "+CLEAR_VALUE;
+    static final String WHITELIST_CMD="dumpsys deviceidle whitelist +com.aquanetworks.watchvpn";
     static final String MESSENGER_WARN=
         "WhatsApp, Telegram и многие мессенджеры игнорируют системный HTTP-прокси. "
         +"Через него идут браузер и приложения, которые его уважают. TUN на этих часах недоступен (нет IVpnManager).";
@@ -88,8 +89,9 @@ final class SystemProxy {
         String now=current(context);
         String state=isDisabled(now)?"снят":now;
         if(write)return "WRITE_SECURE_SETTINGS есть. Connect ставит "+ENDPOINT+", Disconnect / падение движка снимает. Сейчас http_proxy="+state+".";
-        return "Нет WRITE_SECURE_SETTINGS. Один раз в aShell You:\n"+GRANT_CMD
-            +"\nИли вручную после Connect:\n"+SET_CMD+"\nСнять:\n"+CLEAR_CMD
+        return "Сначала (один раз в aShell You):\n"+GRANT_CMD
+            +"\nПосле grant Connect сам ставит http_proxy. Пока grant нет — вручную после зелёного Connected:\n"+SET_CMD
+            +"\nСнять, если нет интернета:\n"+CLEAR_CMD
             +"\nСейчас http_proxy="+state+".";
     }
 }

@@ -21,8 +21,8 @@ android {
         applicationId 'com.aquanetworks.watchvpn'
         minSdk 30
         targetSdk 36
-        versionCode 3
-        versionName '0.2.0'
+        versionCode 4
+        versionName '0.3.0'
         ndk { abiFilters 'armeabi-v7a' }
         testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'
         externalNativeBuild {
@@ -64,26 +64,21 @@ android {
     sourceSets.main.jniLibs.srcDirs = ['src/main/jniLibs']
 }
 
-def mihomoVersion = 'v1.19.34'
-def mihomoJni = file('src/main/jniLibs/armeabi-v7a/libmihomo.so')
-tasks.register('fetchMihomo') {
-    outputs.file mihomoJni
-    doLast {
-        if (mihomoJni.exists() && mihomoJni.length() > 1_000_000) return
-        mihomoJni.parentFile.mkdirs()
-        def url = "https://github.com/MetaCubeX/mihomo/releases/download/${mihomoVersion}/mihomo-android-armv7-${mihomoVersion}.gz"
-        def gz = File.createTempFile('mihomo-android-armv7', '.gz')
-        new URL(url).withInputStream { input -> gz.withOutputStream { output -> output << input } }
-        java.util.zip.GZIPInputStream gzip = new java.util.zip.GZIPInputStream(gz.newInputStream())
-        mihomoJni.withOutputStream { output -> gzip.transferTo(output) }
-        gzip.close()
-        gz.delete()
-        mihomoJni.setExecutable(true, false)
-        if (mihomoJni.length() < 1_000_000) throw new GradleException('Downloaded mihomo binary is too small.')
-    }
+def mihomoJniSo = file('src/main/jniLibs/armeabi-v7a/libmihomo-jni.so')
+tasks.register('buildMihomoJni', Exec) {
+    def script = file('native/mihomo-jni/build.sh')
+    inputs.files fileTree('native/mihomo-jni') { include '**/*.go', '**/*.c', 'go.mod', 'go.sum', 'build.sh' }
+    outputs.file mihomoJniSo
+    workingDir file('native/mihomo-jni')
+    commandLine 'bash', './build.sh', mihomoJniSo.absolutePath
+    environment 'ANDROID_HOME', System.getenv('ANDROID_HOME') ?: '/home/ubuntu/android-sdk'
+    environment 'ANDROID_SDK_ROOT', System.getenv('ANDROID_SDK_ROOT') ?: '/home/ubuntu/android-sdk'
+    environment 'ANDROID_NDK_HOME', System.getenv('ANDROID_NDK_HOME') ?: '/home/ubuntu/android-sdk/ndk/27.2.12479018'
+    onlyIf { !mihomoJniSo.exists() || mihomoJniSo.length() < 1_000_000 }
+    doFirst { mihomoJniSo.parentFile.mkdirs() }
 }
-tasks.matching { it.name.startsWith('pre') && it.name.endsWith('Build') }.configureEach { dependsOn 'fetchMihomo' }
-tasks.matching { it.name.contains('Merge') && it.name.contains('JniLib') }.configureEach { dependsOn 'fetchMihomo' }
+tasks.matching { it.name.startsWith('pre') && it.name.endsWith('Build') }.configureEach { dependsOn 'buildMihomoJni' }
+tasks.matching { it.name.contains('Merge') && it.name.contains('JniLib') }.configureEach { dependsOn 'buildMihomoJni' }
 
 dependencies {
     implementation 'com.squareup.okhttp3:okhttp:4.12.0'

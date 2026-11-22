@@ -29,6 +29,11 @@ final class Store {
     synchronized void setTunMode(boolean on)throws Exception{
         JSONObject root=vault.read();root.put("tunMode",on);vault.write(root);
     }
+    /** Exec of libmihomo.so — off by default (Android phantom-process killer). */
+    synchronized boolean execFallback()throws Exception{return vault.read().optBoolean("execFallback",false);}
+    synchronized void setExecFallback(boolean on)throws Exception{
+        JSONObject root=vault.read();root.put("execFallback",on);vault.write(root);
+    }
     synchronized String secret()throws Exception{
         JSONObject root=vault.read();
         String secret=root.optString("apiSecret","");
@@ -102,12 +107,13 @@ final class Store {
         }
         return out;
     }
-    synchronized String yaml(boolean tun,boolean ipv6)throws Exception{
+    synchronized String yaml(boolean tun,boolean ipv6)throws Exception{return yaml(tun,ipv6,TunConfig.TUN_FD);}
+    synchronized String yaml(boolean tun,boolean ipv6,int tunFd)throws Exception{
         JSONObject root=vault.read();
         List<Map<String,Object>> nodes=SubscriptionParser.fromJson(root.optJSONArray("nodes"));
         String secret=root.optString("apiSecret","");
         if(secret.length()<16){secret=newSecret();root.put("apiSecret",secret);vault.write(root);}
-        return TunConfig.render(nodes,root.optString("selected",""),secret,tun,ipv6);
+        return TunConfig.render(nodes,root.optString("selected",""),secret,tun,ipv6,tunFd);
     }
     private static String newSecret(){
         byte[] bytes=new byte[16];new SecureRandom().nextBytes(bytes);

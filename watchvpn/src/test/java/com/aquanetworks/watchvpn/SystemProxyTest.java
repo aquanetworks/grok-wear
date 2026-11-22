@@ -10,6 +10,9 @@ public final class SystemProxyTest {
         assertEquals("settings put global http_proxy :0",SystemProxy.CLEAR_CMD);
         assertFalse(SystemProxy.GRANT_CMD.contains("adb"));
         assertFalse(SystemProxy.SET_CMD.contains("adb"));
+        assertFalse(SystemProxy.WHITELIST_CMD.contains("adb"));
+        assertTrue(SystemProxy.WHITELIST_CMD.startsWith("dumpsys deviceidle whitelist +"));
+        assertTrue(SystemProxy.describe(null).contains(SystemProxy.GRANT_CMD));
         assertEquals("127.0.0.1:7890",SystemProxy.ENDPOINT);
         assertEquals(7890,TunConfig.MIXED_PORT);
     }

@@ -145,13 +145,14 @@ public final class WatchVpnService extends VpnService {
                     throw WatchFail.of(VpnConsent.establishFailed(this,"establish() returned null."));
                 }
                 AppLog.line("establish ok");
-                String yaml=store.yaml(true,ipv6Up);
                 int fd=tun.detachFd();
                 tun=null;
-                try{
-                    MihomoEngine.start(this,yaml,fd);
-                }finally{
-                    MihomoEngine.closeFd(fd);
+                String yaml=store.yaml(true,ipv6Up,fd);
+                if(MihomoJni.loaded()&&!store.execFallback()){
+                    MihomoEngine.start(this,yaml,-1);
+                }else{
+                    try{MihomoEngine.start(this,yaml,fd);}
+                    finally{MihomoEngine.closeFd(fd);}
                 }
                 waitReady(store.secret());
                 String selected=TunConfig.selectedName(store.nodes(),store.selected());

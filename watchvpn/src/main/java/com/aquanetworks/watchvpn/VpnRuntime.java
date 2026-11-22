@@ -140,6 +140,15 @@ final class VpnRuntime {
             }catch(Exception e){error(safe(e));}
         });
     }
+    static void setExecFallback(boolean on){
+        WORK.execute(()->{
+            try{
+                Store.get(APP).setExecFallback(on);
+                AppLog.line("execFallback "+on);
+                publishLocked();
+            }catch(Exception e){error(safe(e));}
+        });
+    }
     static void setTunMode(boolean on){
         WORK.execute(()->{
             try{

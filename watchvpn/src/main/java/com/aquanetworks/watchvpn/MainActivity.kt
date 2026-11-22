@@ -199,11 +199,37 @@ private fun HomeScreen(
         }
         item {
             Text(
-                "Прокси ${snap.proxyEndpoint}" + if (snap.httpProxyOn) " · http_proxy вкл" else if (snap.writeSecure) "" else " · выставить вручную",
+                "Прокси ${snap.proxyEndpoint}" + when {
+                    snap.connected() && snap.httpProxyOn -> " · http_proxy вкл"
+                    snap.connected() && !snap.writeSecure -> " · нужен grant или SET"
+                    else -> ""
+                },
                 textAlign = TextAlign.Center,
                 style = MaterialTheme.typography.caption2,
                 modifier = Modifier.padding(horizontal = 10.dp),
             )
+        }
+        if (!snap.writeSecure) {
+            item {
+                Text(
+                    "Сначала:\n${SystemProxy.GRANT_CMD}",
+                    color = Color(0xFF8DB8FF),
+                    textAlign = TextAlign.Center,
+                    style = MaterialTheme.typography.caption3,
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+                )
+            }
+        }
+        if (snap.error.contains(SystemProxy.CLEAR_CMD) || snap.error.contains(Health.CLEAR_BANNER.take(20))) {
+            item {
+                Text(
+                    Health.CLEAR_BANNER,
+                    color = Color(0xFFFF1744),
+                    textAlign = TextAlign.Center,
+                    style = MaterialTheme.typography.body2,
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
+                )
+            }
         }
         item {
             Text(
@@ -389,6 +415,23 @@ private fun HelpScreen(snap: Snapshot, onBack: () -> Unit, onLog: () -> Unit, on
                     toggleControl = { Switch(checked = snap.tunMode) },
                 )
             }
+        }
+        item {
+            Text(
+                "Движок in-process (libmihomo-jni). Exec-потомок Android убивает (phantom process).",
+                textAlign = TextAlign.Center,
+                modifier = Modifier.padding(horizontal = 10.dp),
+                style = MaterialTheme.typography.caption3,
+            )
+        }
+        item {
+            Text(
+                "Опционально батарея:\n${SystemProxy.WHITELIST_CMD}",
+                textAlign = TextAlign.Center,
+                color = Color(0xFF8DB8FF),
+                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                style = MaterialTheme.typography.caption3,
+            )
         }
         item {
             Text(

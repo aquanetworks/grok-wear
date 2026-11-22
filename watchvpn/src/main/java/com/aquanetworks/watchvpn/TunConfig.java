@@ -19,6 +19,9 @@ final class TunConfig {
     static final String FAKE_IP="198.18.0.1/16";
 
     static String render(List<Map<String,Object>> nodes,String selected,String secret,boolean tun,boolean ipv6)throws Exception{
+        return render(nodes,selected,secret,tun,ipv6,TUN_FD);
+    }
+    static String render(List<Map<String,Object>> nodes,String selected,String secret,boolean tun,boolean ipv6,int tunFd)throws Exception{
         if(nodes==null||nodes.isEmpty())throw WatchFail.of("Pick a server from the subscription first.");
         if(secret==null||secret.length()<16)throw WatchFail.of("VPN API secret is missing.");
         ArrayList<String> names=new ArrayList<>();
@@ -43,7 +46,7 @@ final class TunConfig {
         root.put("find-process-mode","off");
         root.put("tcp-concurrent",Boolean.TRUE);
         root.put("unified-delay",Boolean.TRUE);
-        if(tun)root.put("tun",tunMap(ipv6));
+        if(tun)root.put("tun",tunMap(ipv6,tunFd));
         root.put("dns",dnsMap(ipv6));
         root.put("proxies",nodes);
         LinkedHashMap<String,Object> group=new LinkedHashMap<>();
@@ -58,7 +61,8 @@ final class TunConfig {
         root.put("rules",rules);
         return ClashYaml.dump(root)+"\n# selected: "+selected+"\n";
     }
-    static Map<String,Object> tunMap(boolean ipv6){
+    static Map<String,Object> tunMap(boolean ipv6){return tunMap(ipv6,TUN_FD);}
+    static Map<String,Object> tunMap(boolean ipv6,int tunFd){
         LinkedHashMap<String,Object> tun=new LinkedHashMap<>();
         tun.put("enable",Boolean.TRUE);
         tun.put("stack","mixed");
@@ -66,7 +70,7 @@ final class TunConfig {
         tun.put("auto-detect-interface",Boolean.FALSE);
         tun.put("strict-route",Boolean.FALSE);
         tun.put("mtu",MTU);
-        tun.put("file-descriptor",TUN_FD);
+        tun.put("file-descriptor",tunFd>0?tunFd:TUN_FD);
         ArrayList<String> v4=new ArrayList<>();v4.add(INET4);tun.put("inet4-address",v4);
         if(ipv6){ArrayList<String> v6=new ArrayList<>();v6.add(INET6);tun.put("inet6-address",v6);}
         ArrayList<String> hijack=new ArrayList<>();
