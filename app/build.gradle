@@ -20,8 +20,8 @@ android {
         applicationId 'si.zya.grokwear'
         minSdk 30
         targetSdk 36
-        versionCode 45
-        versionName '0.8.1'
+        versionCode 46
+        versionName '0.8.2'
         buildConfigField 'String', 'SENTRY_DSN', "\"${sentryDsn}\""
         ndk { abiFilters 'armeabi-v7a' }
         // On-device tests run on an emulator only (ANDROID_SERIAL), never a personal watch.

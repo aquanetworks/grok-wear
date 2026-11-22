@@ -245,7 +245,7 @@ public final class MainActivity extends Activity {
     }
     private static String openBotExtra(Intent intent){String id=intent==null?null:intent.getStringExtra(ReplyAlertService.OPEN_BOT);return id==null||id.length()>512?"":id;}
     @Override protected void onResume(){super.onResume();visible=true;if(!preview)UpdateCheck.maybeCheck(this,()->{if(visible&&(screen.equals("bots")||screen.equals("settings")))render();});for(BotAvatarView face:avatars)face.running(true);if(waveform!=null)waveform.running(true);if(isCall()){main.removeCallbacks(callClock);main.post(callClock);}
-        if(!preview){VoiceService.addListener(voiceListener);ProxyRuntime.addListener(proxyListener);EventStream.add(this,live);if(SIGN_OUT_ACTIVE.get()){screen="signout_confirm";render();main.removeCallbacks(signOutObserver);main.post(signOutObserver);return;}if(awaitingMicrophonePermission&&!pendingTalkCurrent())clearPendingTalk();rosterRetries=0;
+        if(!preview){ProxyRuntime.watch(true);VoiceService.addListener(voiceListener);ProxyRuntime.addListener(proxyListener);EventStream.add(this,live);if(SIGN_OUT_ACTIVE.get()){screen="signout_confirm";render();main.removeCallbacks(signOutObserver);main.post(signOutObserver);return;}if(awaitingMicrophonePermission&&!pendingTalkCurrent())clearPendingTalk();rosterRetries=0;
             // The assistant button during a call just shows the call; after one ends, it starts the next from the Bot page.
             if(pendingAssist&&(VoiceService.snapshot().active||isCall()))pendingAssist=false;
             else if(pendingAssist&&(screen.equals("done")||screen.equals("dropped")||screen.equals("error"))){screen="ready";safeError="";}
@@ -254,7 +254,7 @@ public final class MainActivity extends Activity {
             if(VoiceService.snapshot().active||isCall())renderVoice();else if(screen.equals("done")||screen.equals("dropped")||screen.equals("error"))render();else if(loads)loadAccount();}
     }
     @Override protected void onPause(){cancelRosterRetry();main.removeCallbacks(loadingTick);if(pendingTalkGranted)clearPendingTalk();visible=false;epoch++;historyRequest++;historyLoading=false;polling=false;main.removeCallbacks(pollTick);for(BotAvatarView face:avatars)face.running(false);if(waveform!=null)waveform.running(false);main.removeCallbacks(callClock);
-        if(!preview){VoiceService.removeListener(voiceListener);ProxyRuntime.removeListener(proxyListener);EventStream.remove(live);}openChat="";main.removeCallbacks(liveChat);main.removeCallbacks(liveRender);super.onPause();}
+        if(!preview){ProxyRuntime.watch(false);VoiceService.removeListener(voiceListener);ProxyRuntime.removeListener(proxyListener);EventStream.remove(live);}openChat="";main.removeCallbacks(liveChat);main.removeCallbacks(liveRender);super.onPause();}
     @Override protected void onStop(){if(!awaitingMicrophonePermission)clearPendingTalk();super.onStop();}
     @Override protected void onDestroy(){if(android.os.Build.VERSION.SDK_INT>=33&&modernBack!=null)getOnBackInvokedDispatcher().unregisterOnBackInvokedCallback(modernBack);previewEpoch++;worker.shutdownNow();preferencesWorker.shutdownNow();rosterWorker.shutdownNow();main.removeCallbacksAndMessages(null);super.onDestroy();}
     // API30–32 fallback; API33+ uses the platform gesture dispatcher above.
@@ -1802,7 +1802,10 @@ public final class MainActivity extends Activity {
     private void task(){label("Async tasks · Subagent",12,SECONDARY);title("Needs attention");label(preview?"Demo task · a calendar change needs review":"Tasks aren’t available on this watch yet.",14,SECONDARY);
         if(preview)action("Review request",()->setPreviewScreen("approval"));action("Chats",()->{screen="recent";render();});action("Back",()->goHome());}
     private void talk(){if(botSelectionPending)return;if(historyStaging()){render();return;}        if(!preview&&VoiceService.snapshot().active){renderVoice();return;}transcript.clear();transcriptLast="";micTicked=false;if(preview){demo();return;}
-        if(!AppProxy.ready()){openProxyFrom(screen.equals("bots")?"bots":"ready");return;}
+        whenProxyReady(this::talkConnected,screen.equals("bots")?"bots":"ready");}
+    private void talkConnected(){
+        if(botSelectionPending||historyStaging()){render();return;}
+        if(VoiceService.snapshot().active){renderVoice();return;}
         if(checkSelfPermission(Manifest.permission.RECORD_AUDIO)!=PackageManager.PERMISSION_GRANTED){
             clearPendingTalk();pendingTalkIdentity=currentConversationIdentity();pendingTalkAt=android.os.SystemClock.elapsedRealtime();pendingTalkNavigation=navigation;awaitingMicrophonePermission=true;
             requestPermissions(new String[]{Manifest.permission.RECORD_AUDIO},17);return;
@@ -1810,6 +1813,26 @@ public final class MainActivity extends Activity {
         // No network: say so now, instead of a long "Loading chat" that can only fail.
         if(!VoiceService.online(this)){clearPendingTalk();safeError="";screen="offline";render();return;}
         clearPendingTalk();final String callIdentity=currentConversationIdentity();if(!VoiceService.start(this)){safeError="Tap Talk while your watch is unlocked.";screen="ready";render();}else{receiptIdentity=callIdentity;receiptElapsed=0;receiptSync="";receiptRefreshPending=true;historyRequest++;historyLoading=false;renderVoice();}}
+    /** Probe Watch VPN off the UI thread, then continue. Fail-closed: closed → proxy screen. */
+    private void whenProxyReady(Runnable next,String from){
+        int mine=epoch,route=navigation;
+        worker.execute(()->{
+            try{
+                AppProxy.require();
+                main.post(()->{
+                    if(!visible||mine!=epoch||route!=navigation)return;
+                    if(VoiceService.snapshot().active){renderVoice();return;}
+                    next.run();
+                });
+            }catch(Exception failed){
+                main.post(()->{
+                    if(!visible||mine!=epoch||route!=navigation)return;
+                    if(AppProxy.isClosed(failed))openProxyFrom(from);
+                    else showSafeError(failed);
+                });
+            }
+        });
+    }
     private void clearPendingTalk(){main.removeCallbacks(finishGrantedTalk);pendingTalkIdentity="";pendingTalkAt=0;pendingTalkGrantedAt=0;awaitingMicrophonePermission=false;pendingTalkGranted=false;}
     private boolean pendingTalkCurrent(){return !pendingTalkIdentity.isEmpty()&&pendingTalkIdentity.equals(currentConversationIdentity())&&pendingTalkNavigation==navigation&&android.os.SystemClock.elapsedRealtime()-pendingTalkAt<=60000&&(screen.equals("ready")||screen.equals("bots"));}
     private void resumeGrantedTalk(){
@@ -1974,7 +1997,6 @@ public final class MainActivity extends Activity {
     private void refreshBots(boolean explicit){
         if(preview||botSelectionPending)return;
         if(VoiceService.snapshot().active){renderVoice();return;}
-        if(!AppProxy.ready()){botListError=AppProxy.OFF;botsLoading=false;rosterFetchActive=false;if(explicit||!botsCached)renderBotListPreservingScroll();return;}
         // A tap during a background refresh shows that one running, and its result when it lands.
         if(rosterFetchActive){if(explicit){refreshShown=true;renderBotListPreservingScroll();}return;}
         long now=System.currentTimeMillis(),elapsed=android.os.SystemClock.elapsedRealtime();
@@ -1987,6 +2009,7 @@ public final class MainActivity extends Activity {
         if(!botsCached||hadError||explicit)renderBotListPreservingScroll();
         final int request=++botRequest;activeRosterRequest=request;final String expected=botsAccountBinding;
         rosterWorker.execute(()->{try{
+            AppProxy.require();
             if(!expected.equals(accountIdentity(account.authState())))throw new IllegalStateException();
             JSONArray found=account.bots();JSONObject saved=account.cachedRoster();
             long took=android.os.SystemClock.elapsedRealtime()-elapsed;
@@ -2008,6 +2031,7 @@ public final class MainActivity extends Activity {
         }catch(Exception failure){ProblemReport.note(getApplicationContext(),"Bot list",failure,"after "+ProblemReport.seconds(android.os.SystemClock.elapsedRealtime()-elapsed)+" · "+ProblemReport.network(getApplicationContext()));String why=ProblemReport.offline(failure)?"offline":ProblemReport.code(failure);
             GrokCore.Failure refused=failure instanceof GrokCore.Failure?(GrokCore.Failure)failure:null;
             main.post(()->{if(activeRosterRequest==request)rosterFetchActive=false;
+                if(AppProxy.isClosed(failure)){if(currentBotRefresh(request,expected)){botsLoading=false;botListError=AppProxy.OFF;renderBotListPreservingScroll();}return;}
                 // A dropped stale team changed the account binding: load the account again under the new one.
                 if(refused!=null&&BotAccount.TEAM_CHANGED.equals(refused.code)){if(visible&&!VoiceService.snapshot().active)loadAccount();return;}
                 // Grok explained why this account can't use Bots: say so, with where to fix it.
@@ -2057,7 +2081,11 @@ public final class MainActivity extends Activity {
         }catch(Exception ignored){main.post(()->{botSelectionPending=false;if(!visible||mine!=epoch)return;
             if(VoiceService.snapshot().active){renderVoice();return;}botListError="Couldn’t switch Bots. Try again.";render();});}});
     }
-    private void beginLogin(){if(preview){setPreviewScreen("qr");return;}if(!AppProxy.ready()){openProxyFrom("welcome");return;}GrokAuthCore.releaseHold();clearBotCache();epoch++;polling=false;main.removeCallbacks(pollTick);task(()->account.beginLogin(),value->{loginAttempt=value.optString("login_attempt","");screen="qr";render();schedulePoll();});}
+    private void beginLogin(){if(preview){setPreviewScreen("qr");return;}whenProxyReady(this::beginLoginConnected,"welcome");}
+    private void beginLoginConnected(){
+        GrokAuthCore.releaseHold();clearBotCache();epoch++;polling=false;main.removeCallbacks(pollTick);
+        task(()->account.beginLogin(),value->{loginAttempt=value.optString("login_attempt","");screen="qr";render();schedulePoll();});
+    }
     private void cancelLogin(){if(preview){setPreviewScreen("welcome");return;}final String attempt=loginAttempt;if(attempt.isEmpty())return;epoch++;polling=false;main.removeCallbacks(pollTick);task(()->{account.cancelLogin(attempt);return new JSONObject();},value->{screen="welcome";render();});}
     private void schedulePoll(){if(!visible||preview||!screen.equals("qr"))return;polling=true;main.removeCallbacks(pollTick);main.postDelayed(pollTick,3000);}
     private void pollLogin(){if(preview||!visible||!polling||!screen.equals("qr"))return;task(()->account.pollLogin(),value->{if("waiting".equals(value.optString("status")))schedulePoll();else{polling=false;if("ready".equals(value.optString("status"))){setAlertsSetupPending(true);AssistantRole.setSetupPending(this,true);}loadAccount();}});}

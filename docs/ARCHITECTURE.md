@@ -2,7 +2,7 @@
 
 Grok Wear is a standalone Wear OS app written in Java with a programmatic UI. It talks to the Grok Bot service directly from the watch; there is no phone companion or relay server.
 
-This **0.8.1 external-proxy** variant sends all Grok HTTP and WebSocket traffic fail-closed through Watch VPN’s HTTP CONNECT listener on `127.0.0.1:7890` (`Proxy.Type.HTTP`, unresolved hosts, no system `ProxySelector`). There is no embedded mihomo, no `VpnService`, and no direct fallback.
+This **0.8.2 external-proxy** variant sends all Grok HTTP and WebSocket traffic fail-closed through Watch VPN’s HTTP CONNECT listener on `127.0.0.1:7890` (`Proxy.Type.HTTP`, unresolved hosts, no system `ProxySelector`). There is no embedded mihomo, no `VpnService`, and no direct fallback. UI threads never open the probe socket (cached result + a 2 s background watch).
 
 Voice is **OkHttp WebSocket over HTTPS** to `api.x.ai`, not WebRTC/LiveKit, so the CONNECT proxy can carry the call. UDP/WebRTC tunnelling is not required for this client.
 

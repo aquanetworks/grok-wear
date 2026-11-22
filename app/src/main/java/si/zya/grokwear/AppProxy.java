@@ -15,6 +15,11 @@ import java.net.UnknownHostException;
 import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.BooleanSupplier;
 import javax.net.SocketFactory;
 import okhttp3.Dns;
 
@@ -31,15 +36,24 @@ final class AppProxy {
     static final int DEFAULT_PORT=7890;
     static final String WATCH_VPN="com.aquanetworks.watchvpn";
     static final long CACHE_MS=2000;
+    static final long UI_CACHE_MS=10000;
     private static final String PREFS="grokwear_ext_proxy";
     interface Probe { boolean open(String host,int port,int timeoutMs); }
     static volatile Probe probe=AppProxy::tcp;
+    /** Tests replace this; production is {@link #isUiThread()}. */
+    static volatile BooleanSupplier mainThread=AppProxy::isUiThread;
+    static volatile Runnable afterProbe;
     private static volatile String host=DEFAULT_HOST;
     private static volatile int port=DEFAULT_PORT;
     private static volatile long probedAt;
     private static volatile boolean probedOk;
     private static volatile String lastFailure="";
     private static SharedPreferences prefs;
+    private static final AtomicInteger WATCH=new AtomicInteger();
+    private static final AtomicBoolean QUEUED=new AtomicBoolean();
+    private static final ExecutorService PROBES=Executors.newSingleThreadExecutor(r->{
+        Thread t=new Thread(r,"grokwear-proxy-probe");t.setDaemon(true);return t;
+    });
 
     static synchronized void attach(Context context){
         if(context==null)return;
@@ -59,18 +73,67 @@ final class AppProxy {
     static int port(){return port;}
     static String endpoint(){return host()+":"+port();}
     static void invalidate(){probedAt=0;probedOk=false;}
+    static boolean lastOk(){return probedOk;}
+    static boolean isUiThread(){
+        try{
+            android.os.Looper main=android.os.Looper.getMainLooper();
+            return main!=null&&android.os.Looper.myLooper()==main;
+        }catch(Throwable ignored){return false;}
+    }
+    /**
+     * Safe on any thread. The UI thread never opens a socket: it returns the last probe
+     * (considered fresh for {@link #UI_CACHE_MS}) and schedules a background probe when stale.
+     * OkHttp / worker threads probe synchronously when the 2 s cache is cold.
+     */
     static boolean ready(){
         long now=System.currentTimeMillis();
+        boolean ui=false;
+        try{ui=mainThread!=null&&mainThread.getAsBoolean();}catch(RuntimeException ignored){}
+        if(ui){
+            long at=probedAt;boolean ok=probedOk;
+            boolean fresh=at>0&&now-at>=0&&now-at<UI_CACHE_MS;
+            if(!fresh)scheduleProbe();
+            return at>0&&ok;
+        }
         if(probedAt>0&&now-probedAt>=0&&now-probedAt<CACHE_MS)return probedOk;
+        return probeNow();
+    }
+    static boolean probeNow(){
         boolean ok;
         try{ok=probe.open(host(),port(),250);}
-        catch(RuntimeException failed){ok=false;}
-        probedAt=now;probedOk=ok;
+        catch(RuntimeException failed){
+            log("probe fail "+failed.getClass().getSimpleName());
+            ok=false;
+        }
+        probedAt=System.currentTimeMillis();
+        probedOk=ok;
         if(!ok){
             lastFailure=OFF;
             log("closed "+endpoint());
         }
+        Runnable notify=afterProbe;
+        if(notify!=null)try{notify.run();}catch(RuntimeException ignored){}
         return ok;
+    }
+    static void scheduleProbe(){
+        if(!QUEUED.compareAndSet(false,true))return;
+        PROBES.execute(()->{
+            try{probeNow();}
+            finally{QUEUED.set(false);}
+        });
+    }
+    /** While the activity is resumed, keep the TCP cache warm every 2 s. */
+    static void watch(boolean on){
+        if(on){
+            int gen=WATCH.incrementAndGet();
+            PROBES.execute(()->{
+                while(WATCH.get()==gen){
+                    probeNow();
+                    try{Thread.sleep(CACHE_MS);}
+                    catch(InterruptedException stopped){Thread.currentThread().interrupt();return;}
+                }
+            });
+        }else WATCH.incrementAndGet();
     }
     static String lastFailure(){return lastFailure==null?"":lastFailure;}
     static void noteFailure(String message){if(message!=null&&!message.isEmpty())lastFailure=message;}
@@ -185,10 +248,38 @@ final class AppProxy {
     static boolean tcp(String h,int p,int timeoutMs){
         if(h==null||h.isEmpty()||p<=0)return false;
         try(Socket socket=new Socket()){
-            InetAddress addr=InetAddress.getByName(h);
-            if(addr.isAnyLocalAddress())return false;
+            InetAddress addr=literalAddress(h);
+            if(addr==null)addr=InetAddress.getByName(h);
+            if(addr.isAnyLocalAddress()&&!addr.isLoopbackAddress())return false;
             socket.connect(new InetSocketAddress(addr,p),Math.max(100,timeoutMs));
             return true;
-        }catch(Exception failed){return false;}
+        }catch(Exception failed){
+            log("probe fail "+failed.getClass().getSimpleName());
+            return false;
+        }
+    }
+    /** IPv4 or {@code ::1} without DNS. {@code null} if {@code h} is not a literal. */
+    static InetAddress literalAddress(String h){
+        if(h==null||h.isEmpty())return null;
+        if("::1".equals(h)||"[::1]".equals(h)){
+            try{return InetAddress.getByAddress("::1",new byte[]{0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1});}
+            catch(UnknownHostException impossible){return null;}
+        }
+        String[] parts=h.split("\\.");
+        if(parts.length!=4)return null;
+        byte[] raw=new byte[4];
+        for(int i=0;i<4;i++){
+            if(parts[i].isEmpty()||parts[i].length()>3)return null;
+            int n=0;
+            for(int c=0;c<parts[i].length();c++){
+                char ch=parts[i].charAt(c);
+                if(ch<'0'||ch>'9')return null;
+                n=n*10+(ch-'0');
+            }
+            if(n>255)return null;
+            raw[i]=(byte)n;
+        }
+        try{return InetAddress.getByAddress(h,raw);}
+        catch(UnknownHostException impossible){return null;}
     }
 }

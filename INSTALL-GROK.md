@@ -1,13 +1,13 @@
-# Установка Grok Wear 0.8.1 (внешний прокси Watch VPN)
+# Установка Grok Wear 0.8.2 (внешний прокси Watch VPN)
 
 Этот вариант **не** содержит mihomo. Весь трафик Grok идёт через **Watch VPN** (`127.0.0.1:7890`, HTTP CONNECT). Без Watch VPN приложение **не** ходит в интернет напрямую.
 
 > Неофициальный клиент Grok. API может измениться или сломаться. Не аффилирован с xAI или Cursor.
 
-**Релиз:** https://github.com/aquanetworks/grok-wear/releases/tag/grok-wear-0.8.1-ext
+**Релиз:** https://github.com/aquanetworks/grok-wear/releases/tag/grok-wear-0.8.2-ext
 
-**APK:** https://github.com/aquanetworks/grok-wear/releases/download/grok-wear-0.8.1-ext/grok-wear-armeabi-v7a.apk  
-`si.zya.grokwear`, versionCode **45**, 0.8.1, ~7.1 MiB, armeabi-v7a, без `libmihomo.so`. Та же sideload-подпись, что 0.8.0-vless — ставится поверх.
+**APK:** https://github.com/aquanetworks/grok-wear/releases/download/grok-wear-0.8.2-ext/grok-wear-armeabi-v7a.apk  
+`si.zya.grokwear`, versionCode **46**, 0.8.2, armeabi-v7a, без `libmihomo.so`. Та же sideload-подпись, что 0.8.0-vless / 0.8.1-ext — ставится поверх.
 
 Сначала поставьте **Watch VPN 0.3.1**:
 https://github.com/aquanetworks/grok-wear/releases/download/watch-vpn-0.3.1/watch-vpn-armeabi-v7a.apk

@@ -40,21 +40,23 @@ final class ProxyRuntime {
     static void attach(Context context){
         app=context.getApplicationContext();
         AppProxy.attach(app);
-        WORKER.execute(ProxyRuntime::refreshNow);
+        AppProxy.afterProbe=ProxyRuntime::publishCache;
+        WORKER.execute(AppProxy::probeNow);
     }
-    static void refresh(){WORKER.execute(ProxyRuntime::refreshNow);}
+    static void watch(boolean on){AppProxy.watch(on);if(on)refresh();}
+    static void refresh(){WORKER.execute(AppProxy::probeNow);}
     static void setEndpoint(String host,int port){
         AppProxy.setEndpoint(host,port);
-        WORKER.execute(ProxyRuntime::refreshNow);
+        WORKER.execute(AppProxy::probeNow);
     }
     static void check(){
         Context context=app;if(context==null)return;int mine=EPOCH.incrementAndGet();
         WORKER.execute(()->{
-            publish(new Snapshot("Проверка…",current.error,AppProxy.endpoint(),current.check,AppProxy.ready(),true,installed(context)));
+            publish(new Snapshot("Проверка…",current.error,AppProxy.endpoint(),current.check,AppProxy.lastOk(),true,installed(context)));
             try{
                 String result=pingGrok();
                 if(mine!=EPOCH.get())return;
-                refreshNow();
+                AppProxy.probeNow();
                 Snapshot s=current;
                 publish(new Snapshot(s.state,s.error,s.endpoint,result,s.connected,false,s.watchVpnInstalled));
             }catch(Exception failed){
@@ -62,7 +64,7 @@ final class ProxyRuntime {
                 String message=AppProxy.isClosed(failed)?AppProxy.OFF:("Проверка: "+safe(failed));
                 AppProxy.noteFailure(message);
                 AppProxy.log("check FAIL");
-                publish(new Snapshot("error",message,AppProxy.endpoint(),message,AppProxy.ready(),false,installed(context)));
+                publish(new Snapshot("error",message,AppProxy.endpoint(),message,AppProxy.lastOk(),false,installed(context)));
             }
         });
     }
@@ -99,9 +101,9 @@ final class ProxyRuntime {
             return false;
         }
     }
-    private static void refreshNow(){
+    private static void publishCache(){
         Context context=app;
-        boolean ok=AppProxy.ready();
+        boolean ok=AppProxy.lastOk();
         publish(new Snapshot(ok?"on":"off",ok?"":AppProxy.OFF,AppProxy.endpoint(),current.check,ok,false,installed(context)));
     }
     private static String safe(Exception failed){

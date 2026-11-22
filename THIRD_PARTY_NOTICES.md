@@ -16,7 +16,7 @@ The repository also contains the [Gradle Wrapper](https://docs.gradle.org/curren
 
 Test-only dependencies are not shipped in the app: [JUnit 4](https://junit.org/junit4/) (Eclipse Public License 1.0) and [JSON-java](https://github.com/stleary/JSON-java) (Public Domain).
 
-This 0.8.1 external-proxy APK does **not** embed mihomo. Routing is provided by the separate Watch VPN app.
+This 0.8.2 external-proxy APK does **not** embed mihomo. Routing is provided by the separate Watch VPN app.
 
 The full text of the Apache License 2.0 is available at <https://www.apache.org/licenses/LICENSE-2.0>.
 
